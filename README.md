@@ -4,10 +4,10 @@ A small browser toolkit for **Project Gorgon**. Load your items export and chara
 
 ## Features
 
-- **Favor Finder** — See which stored items you can give to an NPC for favor (Love vs Like), grouped by city and vault, with current favor if you load a character sheet.
-- **Storage Saver** — Find items split across multiple vaults so you can consolidate stacks in-game and free storage slots. Shows only items where you can actually save slots; each line shows map and vault (e.g. *Serbule: Council Vault — 5*).
-- **Full Inventory** — Browse all items by category (equipment, Skill Book, Recipe, Work Order, consumables, potions, gardening, etc.). Filter by category; equipment shows treasure mods (from your export and CDN data) in a separate Mods column, with human-readable effects and inline icons where the game data uses `<icon=NNN>`.
-- **Mod Finder** — *(Coming soon)* Find mods by skill.
+- **Favor Finder** — Pick a map and NPC; see which stored items you can give for favor (Love vs Like), grouped by city and vault. Current favor shown if you load a character sheet. NPC and vault names link to the wiki.
+- **Storage Saver** — Find items split across multiple vaults so you can consolidate stacks in-game and free slots. Runs when you open the tab. Shows only items where you can actually save slots; each line shows map and vault (e.g. *Serbule: Council Vault — 5*).
+- **Full Inventory** — Browse all items by category (equipment, Skill Book, Recipe, Work Order, consumables, potions, gardening, etc.). Filter by category; search by name, description, effects, or mods. Equipment shows treasure mods in a separate Mods column, with human-readable effects and inline icons where the game data uses `<icon=NNN>`.
+- **Mod Finder** — Pick one or two combat skills; see all mods for those skills, grouped by equipment slot. Multiselect slot filter. Mods that reference a specific ability show that ability's icon.
 
 See [FEATURES.md](FEATURES.md) for more detail on each feature and future plans.
 
@@ -33,7 +33,7 @@ The app loads NPCs, items, storage vaults, areas, attributes, and treasure-syste
 
 If the CDN is unreachable (e.g. offline or blocked), use local copies:
 
-1. Download `npcs.json`, `items.json`, `storagevaults.json`, and `areas.json` from the [CDN data](https://cdn.projectgorgon.com/v457/data/).
+1. Download `npcs.json`, `items.json`, `storagevaults.json`, `areas.json`, `attributes.json`, `skills.json`, `abilities.json`, and `tsysclientinfo.json` from the [CDN data](https://cdn.projectgorgon.com/v457/data/).
 2. Put them in a `data/` folder next to `index.html`.
 3. Serve the project with a local server as above.
 
