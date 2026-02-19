@@ -1,10 +1,17 @@
+/**
+ * Gorgon's Vault — main app logic.
+ * Loads CDN/local game data, handles Favor Finder, Storage Saver, Full Inventory,
+ * Mod Finder, and What's this for? (item crafting lookup).
+ */
 (function () {
   'use strict';
 
+  // ——— CDN and local data paths ———
   const CDN_BASE = 'https://cdn.projectgorgon.com/v457/data';
   const CDN_ICONS_BASE = 'https://cdn.projectgorgon.com/v457/icons';
   const DATA_BASE = './data';
 
+  // ——— In-memory data (CDN + user uploads) ———
   let npcs = {};
   let items = {};
   let storageVaults = {};
@@ -14,11 +21,14 @@
   let tsysByInternalName = {};
   let skills = {};
   let abilities = {};
+  let recipes = {};
+  let itemTypeIdToRecipes = {};
   let charactersItems = {};
   let charactersSheets = {};
   let giftableNpcs = [];
   let maps = [];
 
+  // ——— DOM refs and constants ———
   const $ = (id) => document.getElementById(id);
   const itemsFiles = $('itemsFiles');
   const characterFiles = $('characterFiles');
@@ -32,24 +42,41 @@
   const cdnError = $('cdnError');
   const storageSaverStatus = $('storageSaverStatus');
   const storageSaverResults = $('storageSaverResults');
+  const tripPlannerStops = $('tripPlannerStops');
+  const tripPlannerAddStop = $('tripPlannerAddStop');
+  const tripPlannerClear = $('tripPlannerClear');
+  const tripPlannerOutput = $('tripPlannerOutput');
   const fullInventoryEmpty = $('fullInventoryEmpty');
   const fullInventoryResults = $('fullInventoryResults');
   const fullInventoryCategory = $('fullInventoryCategory');
+  const fullInventoryMap = $('fullInventoryMap');
+  const fullInventoryVault = $('fullInventoryVault');
   const fullInventorySearch = $('fullInventorySearch');
   const backToTopBtn = $('backToTop');
   const modFinderSkill1 = $('modFinderSkill1');
   const modFinderSkill2 = $('modFinderSkill2');
+  const modFinderRarity = $('modFinderRarity');
   const modFinderSlotCheckboxes = $('modFinderSlotCheckboxes');
   const modFinderEmpty = $('modFinderEmpty');
   const modFinderResults = $('modFinderResults');
+  const whatsThisForSearch = $('whatsThisForSearch');
+  const whatsThisForResults = $('whatsThisForResults');
+  const itemUsedForModal = $('itemUsedForModal');
+  const itemUsedForModalBody = $('itemUsedForModalBody');
+  const itemUsedForModalClose = $('itemUsedForModalClose');
+  const itemUsedForModalOpenTab = $('itemUsedForModalOpenTab');
   const MOD_SLOT_FILTER_OTHER = '__other__';
   const PANEL_ID = 'data-panel';
+  let whatsThisForDebounceTimer = null;
+  let itemUsedForModalLastItem = null;
 
   const MOD_SLOT_ORDER = ['Head', 'Chest', 'Hands', 'MainHand', 'OffHand', 'Legs', 'Feet'];
 
+  // Full Inventory: keyword → category; icon 5792 = Skill Book, 4003 + name/desc = Recipe or Work Order
   const FULL_INVENTORY_CATEGORY_ORDER = [
     'Equipment', 'Skill Book', 'Recipe', 'Work Order', 'Consumables', 'Potions', 'Gardening', 'Ingredients',
-    'Cooking', 'Ability ingredients', 'Nature', 'Brewing', 'Other'
+    'Cooking', 'Ability ingredients', 'Nature', 'Brewing', 'Gems', 'Trophies', 'Artwork', 'Valuables', 'Vendor trash',
+    'Leather', 'Metal', 'Dyes', 'Cloth', 'Phlogiston', 'Augments', 'Other'
   ];
   const KEYWORD_TO_CATEGORY = {
     Equipment: 'Equipment', Weapon: 'Equipment', Armor: 'Equipment', Shield: 'Equipment',
@@ -65,23 +92,40 @@
     CookingIngredient: 'Cooking',
     AbilityIngredient: 'Ability ingredients',
     Nature: 'Nature',
-    BrewingRelated: 'Brewing', BottledItem: 'Brewing'
+    BrewingRelated: 'Brewing', BottledItem: 'Brewing',
+    Gem: 'Gems', Crystal: 'Gems',
+    CorpseTrophy: 'Trophies',
+    Artwork: 'Artwork', Painting: 'Artwork',
+    Coin: 'Valuables', Antique: 'Valuables',
+    VendorTrash: 'Vendor trash',
+    Skinning: 'Leather', LeatherRoll: 'Leather', Skin: 'Leather',
+    LeatherRoll1: 'Leather', LeatherRoll2: 'Leather', LeatherRoll3: 'Leather', LeatherRoll4: 'Leather',
+    LeatherRoll5: 'Leather', LeatherRoll6: 'Leather', LeatherRoll7: 'Leather', LeatherRoll8: 'Leather',
+    LeatherRoll9: 'Leather', LeatherRoll10: 'Leather', LeatherRoll11: 'Leather',
+    Ore: 'Metal',
+    Dye: 'Dyes',
+    Cloth: 'Cloth', Textiles: 'Cloth', FaeFelt: 'Cloth', RawCotton: 'Cloth', CardedCotton: 'Cloth',
+    Yarn: 'Cloth', CottonPlant: 'Cloth',
+    Contraption: 'Augments'
   };
 
   function setStatus(msg) {
     dataStatus.textContent = msg;
   }
 
+  /** Item key for CDN items lookup: typeId → "item_123" */
   function normalizeItemKey(typeId) {
     return 'item_' + Number(typeId);
   }
 
+  /** Strip "Key=Value" to "Key" for keyword matching. */
   function itemKeywordBase(kw) {
     if (typeof kw !== 'string') return '';
     const eq = kw.indexOf('=');
     return eq >= 0 ? kw.slice(0, eq) : kw;
   }
 
+  /** True if any NPC preference keyword base matches an item keyword base. */
   function hasKeywordMatch(itemKeywords, preferenceKeywords) {
     const bases = new Set((itemKeywords || []).map(itemKeywordBase));
     return (preferenceKeywords || []).some((pk) => bases.has(pk));
@@ -93,6 +137,7 @@
     return res.json();
   }
 
+  /** Load all CDN JSON (npcs, items, storage, areas, attributes, tsys, skills, abilities, recipes); build indexes. */
   async function loadCdn() {
     const tryUrl = (base, file) => base + '/' + file;
     try {
@@ -173,9 +218,261 @@
         abilities = {};
       }
     }
+    try {
+      recipes = await fetchJson(tryUrl(CDN_BASE, 'recipes.json'));
+    } catch (e) {
+      try {
+        recipes = await fetchJson(tryUrl(DATA_BASE, 'recipes.json'));
+      } catch (e2) {
+        recipes = {};
+      }
+    }
+    buildItemTypeIdToRecipesIndex();
     buildGiftableNpcsAndMaps();
   }
 
+  /** Index: item typeId → list of recipes that use it (for "What's this for?"). */
+  function buildItemTypeIdToRecipesIndex() {
+    itemTypeIdToRecipes = {};
+    for (const [key, recipe] of Object.entries(recipes)) {
+      if (!recipe || !Array.isArray(recipe.Ingredients)) continue;
+      for (const ing of recipe.Ingredients) {
+        const code = ing.ItemCode ?? ing.ItemTypeID;
+        if (code == null) continue;
+        const tid = Number(code);
+        if (!itemTypeIdToRecipes[tid]) itemTypeIdToRecipes[tid] = [];
+        if (!itemTypeIdToRecipes[tid].includes(recipe)) {
+          itemTypeIdToRecipes[tid].push(recipe);
+        }
+      }
+    }
+  }
+
+  /** Recipes that list this item as an ingredient (by typeId). */
+  function getRecipesForItem(typeId) {
+    if (typeId == null) return [];
+    const list = itemTypeIdToRecipes[Number(typeId)];
+    return list ? [...list] : [];
+  }
+
+  /** Search items by name (substring, case-insensitive); returns up to 50 { typeId, name }. */
+  function findItemsByName(query) {
+    if (!query || typeof query !== 'string') return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const out = [];
+    for (const [key, item] of Object.entries(items)) {
+      if (!item) continue;
+      const name = (item.Name || '').trim();
+      if (!name || !name.toLowerCase().includes(q)) continue;
+      const m = key.match(/item_(\d+)/);
+      const typeId = m ? parseInt(m[1], 10) : null;
+      if (typeId != null) out.push({ typeId, name });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out.slice(0, 50);
+  }
+
+  /** Human-readable names for a recipe's ResultItems (for "What's this for?" display). */
+  function getResultItemNames(recipe) {
+    if (!recipe || !Array.isArray(recipe.ResultItems)) return [];
+    return recipe.ResultItems.map((r) => {
+      const cdn = getCdnItem(r.ItemCode ?? r.ItemTypeID);
+      return (cdn && cdn.Name) ? cdn.Name : ('Item ' + (r.ItemCode ?? r.ItemTypeID));
+    }).filter(Boolean);
+  }
+
+  /** Append a small item icon + optional label to parent; returns the wrapper span. */
+  function appendItemIconAndName(parent, typeId, label, stackSize) {
+    const cdn = getCdnItem(typeId);
+    const name = (cdn && cdn.Name) ? cdn.Name : ('Item ' + typeId);
+    const iconId = (cdn && cdn.IconId != null) ? cdn.IconId : null;
+    const span = document.createElement('span');
+    span.className = 'item-used-for-icon-name';
+    if (iconId != null) {
+      const img = document.createElement('img');
+      img.src = CDN_ICONS_BASE + '/icon_' + iconId + '.png';
+      img.alt = '';
+      img.className = 'item-used-for-icon';
+      span.appendChild(img);
+    }
+    const text = document.createTextNode((label != null ? label : name) + (stackSize != null && stackSize > 1 ? ' × ' + stackSize : ''));
+    span.appendChild(text);
+    parent.appendChild(span);
+    return span;
+  }
+
+  /** Build DOM for one recipe: icon, name, skill/lvl, ingredients list (with icons), "→", results (with icons). */
+  function renderRecipeBlock(recipe) {
+    const block = document.createElement('div');
+    block.className = 'item-used-for-recipe-block';
+    const nameRow = document.createElement('div');
+    nameRow.className = 'item-used-for-recipe-name-row';
+    const recipeIconId = (recipe && recipe.IconId != null) ? recipe.IconId : null;
+    if (recipeIconId != null) {
+      const img = document.createElement('img');
+      img.src = CDN_ICONS_BASE + '/icon_' + recipeIconId + '.png';
+      img.alt = '';
+      img.className = 'item-used-for-recipe-icon';
+      nameRow.appendChild(img);
+    }
+    const nameText = (recipe.Name || recipe.InternalName || 'Unknown').trim();
+    const skill = (recipe.Skill || '').trim() || '—';
+    const lvl = recipe.SkillLevelReq != null ? ' Lv ' + recipe.SkillLevelReq : '';
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'item-used-for-recipe-title';
+    nameSpan.textContent = nameText + ' (' + skill + lvl + ')';
+    nameRow.appendChild(nameSpan);
+    block.appendChild(nameRow);
+    const ingredientsRow = document.createElement('div');
+    ingredientsRow.className = 'item-used-for-recipe-ingredients';
+    if (recipe.Ingredients && recipe.Ingredients.length) {
+      const ingLabel = document.createElement('span');
+      ingLabel.className = 'item-used-for-recipe-label';
+      ingLabel.textContent = 'Ingredients: ';
+      ingredientsRow.appendChild(ingLabel);
+      recipe.Ingredients.forEach((ing, i) => {
+        const code = ing.ItemCode ?? ing.ItemTypeID;
+        if (code == null) return;
+        if (i > 0) ingredientsRow.appendChild(document.createTextNode(' '));
+        appendItemIconAndName(ingredientsRow, code, null, ing.StackSize);
+      });
+    } else {
+      ingredientsRow.appendChild(document.createTextNode('Ingredients: —'));
+    }
+    block.appendChild(ingredientsRow);
+    const resultsRow = document.createElement('div');
+    resultsRow.className = 'item-used-for-recipe-results';
+    if (recipe.ResultItems && recipe.ResultItems.length) {
+      const resLabel = document.createElement('span');
+      resLabel.className = 'item-used-for-recipe-label';
+      resLabel.textContent = '→ Makes: ';
+      resultsRow.appendChild(resLabel);
+      recipe.ResultItems.forEach((r, i) => {
+        const code = r.ItemCode ?? r.ItemTypeID;
+        if (code == null) return;
+        if (i > 0) resultsRow.appendChild(document.createTextNode(' '));
+        appendItemIconAndName(resultsRow, code, null, r.StackSize);
+      });
+    } else {
+      resultsRow.appendChild(document.createTextNode('→ Makes: —'));
+    }
+    block.appendChild(resultsRow);
+    return block;
+  }
+
+  /** Build DOM fragment: item name + "Used in N recipe(s):" blocks (with icons and full recipe info) or "Not used in any known recipes." */
+  function renderItemUsedForHTML(itemName, typeId) {
+    const recipeList = typeId != null ? getRecipesForItem(typeId) : [];
+    const frag = document.createDocumentFragment();
+    const heading = document.createElement('p');
+    heading.className = 'item-used-for-item-name';
+    heading.textContent = itemName;
+    frag.appendChild(heading);
+    if (recipeList.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'item-used-for-empty';
+      empty.textContent = 'Not used in any known recipes.';
+      frag.appendChild(empty);
+    } else {
+      const usedIn = document.createElement('p');
+      usedIn.className = 'item-used-for-used-in';
+      usedIn.textContent = 'Used in ' + recipeList.length + ' recipe(s):';
+      frag.appendChild(usedIn);
+      const container = document.createElement('div');
+      container.className = 'item-used-for-recipe-list';
+      for (const r of recipeList) {
+        container.appendChild(renderRecipeBlock(r));
+      }
+      frag.appendChild(container);
+    }
+    return frag;
+  }
+
+  /** Show modal with "What's this used for?" for the given item (name + optional typeId). */
+  function openItemUsedForModal(itemName, typeId) {
+    itemUsedForModalLastItem = { itemName, typeId };
+    if (itemUsedForModalBody) {
+      itemUsedForModalBody.innerHTML = '';
+      itemUsedForModalBody.appendChild(renderItemUsedForHTML(itemName, typeId));
+    }
+    if (itemUsedForModalOpenTab) {
+      itemUsedForModalOpenTab.hidden = false;
+      itemUsedForModalOpenTab.onclick = (e) => {
+        e.preventDefault();
+        closeItemUsedForModal();
+        switchTab('panelWhatsThisFor');
+        if (whatsThisForSearch && itemName) {
+          whatsThisForSearch.value = itemName;
+          renderWhatsThisForResults(itemName, typeId);
+        }
+      };
+    }
+    if (itemUsedForModal) {
+      itemUsedForModal.hidden = false;
+      itemUsedForModal.setAttribute('aria-hidden', 'false');
+      if (itemUsedForModalClose) itemUsedForModalClose.focus();
+    }
+    document.body.classList.add('modal-open');
+  }
+
+  /** Hide the item-used-for modal and re-enable body scroll. */
+  function closeItemUsedForModal() {
+    if (itemUsedForModal) {
+      itemUsedForModal.hidden = true;
+      itemUsedForModal.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('modal-open');
+  }
+
+  /** Render "What's this for?" tab: hint, no matches, multiple-match picker, or recipe list. */
+  function renderWhatsThisForResults(query, selectedTypeId) {
+    if (!whatsThisForResults) return;
+    whatsThisForResults.innerHTML = '';
+    const q = (query || '').trim();
+    if (!q) {
+      const hint = document.createElement('p');
+      hint.className = 'whats-this-for-hint';
+      hint.textContent = 'Type an item name to search.';
+      whatsThisForResults.appendChild(hint);
+      return;
+    }
+    const matches = findItemsByName(q);
+    if (matches.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'whats-this-for-empty';
+      empty.textContent = 'No items found.';
+      whatsThisForResults.appendChild(empty);
+      return;
+    }
+    if (matches.length > 1 && !selectedTypeId) {
+      const picker = document.createElement('div');
+      picker.className = 'whats-this-for-picker';
+      const label = document.createElement('p');
+      label.textContent = 'Multiple matches. Select one:';
+      picker.appendChild(label);
+      const list = document.createElement('ul');
+      list.className = 'whats-this-for-match-list';
+      for (const m of matches) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'item-lookup-link';
+        btn.textContent = m.name;
+        btn.addEventListener('click', () => renderWhatsThisForResults(q, m.typeId));
+        li.appendChild(btn);
+        list.appendChild(li);
+      }
+      picker.appendChild(list);
+      whatsThisForResults.appendChild(picker);
+      return;
+    }
+    const typeId = selectedTypeId != null ? selectedTypeId : (matches[0] && matches[0].typeId);
+    const itemName = matches.find((x) => x.typeId === typeId)?.name || matches[0]?.name || q;
+    whatsThisForResults.appendChild(renderItemUsedForHTML(itemName, typeId));
+  }
+
+  /** Build list of giftable NPCs and sorted map names from npcs.json. */
   function buildGiftableNpcsAndMaps() {
     const areaNames = new Set();
     giftableNpcs = [];
@@ -187,6 +484,7 @@
     maps = Array.from(areaNames).sort((a, b) => a.localeCompare(b));
   }
 
+  /** Fill map dropdown with area names (from giftable NPCs). */
   function populateMapDropdown() {
     mapSelect.innerHTML = '';
     const opt = document.createElement('option');
@@ -202,6 +500,7 @@
     mapSelect.disabled = false;
   }
 
+  /** Fill NPC dropdown with NPCs in the selected map (area). */
   function populateNpcDropdown(areaFriendlyName) {
     npcSelect.innerHTML = '';
     const opt = document.createElement('option');
@@ -223,11 +522,13 @@
     npcSelect.disabled = false;
   }
 
+  /** Parse items JSON and store in charactersItems keyed by character name. */
   function onItemsFilesChange() {
     const file = itemsFiles.files && itemsFiles.files[0];
     charactersItems = {};
     if (!file) {
       setStatus('');
+      runCurrentTab();
       return;
     }
     setStatus('Reading items file…');
@@ -238,10 +539,12 @@
         const name = (data.Character || file.name || 'Unknown').trim() || file.name;
         if (!data.Items || !Array.isArray(data.Items)) {
           setStatus('File has no Items array.');
+          runCurrentTab();
           return;
         }
         charactersItems[name] = data.Items;
         setStatus('Loaded items from ' + file.name + '.');
+        runCurrentTab();
       } catch (e) {
         setStatus('Invalid JSON: ' + e.message);
       }
@@ -249,10 +552,14 @@
     reader.readAsText(file);
   }
 
+  /** Parse character sheet JSON and store in charactersSheets for favor display. */
   function onCharacterFilesChange() {
     const file = characterFiles.files && characterFiles.files[0];
     charactersSheets = {};
-    if (!file) return;
+    if (!file) {
+      runCurrentTab();
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -261,6 +568,7 @@
         charactersSheets[name] = data;
         const prev = dataStatus.textContent || '';
         setStatus(prev ? prev + ' Character sheet loaded.' : 'Character sheet loaded.');
+        runCurrentTab();
       } catch (_) {
         setStatus('Invalid character sheet JSON.');
       }
@@ -268,11 +576,25 @@
     reader.readAsText(file);
   }
 
+  /** Run the logic for whichever feature panel is currently visible (e.g. after file upload). */
+  function runCurrentTab() {
+    const panel = document.querySelector('.feature-panel:not(.hidden)');
+    const id = panel ? panel.id : null;
+    if (id === 'panelFavor') runMatch();
+    else if (id === 'panelStorage') runStorageSaver();
+    else if (id === 'panelTripPlan') { populateTripStopOptions(); renderTripPlan(); }
+    else if (id === 'panelInventory') renderFullInventory();
+    else if (id === 'panelMods') renderModFinderResults();
+    else if (id === 'panelWhatsThisFor') renderWhatsThisForResults(whatsThisForSearch ? whatsThisForSearch.value : '', null);
+  }
+
+  /** Look up item by typeId from CDN items. */
   function getCdnItem(typeId) {
     const key = normalizeItemKey(typeId);
     return items[key] || null;
   }
 
+  /** Favor Finder: match loaded items to selected NPC's Love/Like preferences and render results. */
   function runMatch() {
     const npcKey = npcSelect.value;
     if (!npcKey) {
@@ -326,6 +648,7 @@
       if (bestDesire) {
         matches.push({
           name: row.Name || cdnItem.Name || 'Unknown',
+          typeId: typeId,
           stackSize: row.StackSize ?? 1,
           value: row.Value ?? cdnItem.Value ?? 0,
           storageVault: row.StorageVault || 'Unknown',
@@ -341,12 +664,14 @@
     renderResults(npc.Name || npcKey, npcFavorLevel, matches);
   }
 
+  /** Display name for a storage vault (from storagevaults.json). */
   function vaultFriendlyName(vaultId) {
     if (!vaultId) return vaultId;
     const v = storageVaults[vaultId];
     return (v && v.NpcFriendlyName) ? v.NpcFriendlyName : vaultId;
   }
 
+  /** City/area label for a vault (e.g. "Serbule") for grouping. */
   function vaultCityHeading(vaultId) {
     if (!vaultId) return null;
     const v = storageVaults[vaultId];
@@ -357,6 +682,7 @@
     return (a && a.FriendlyName) ? a.FriendlyName : areaKey;
   }
 
+  /** One list item for Favor Finder: icon + clickable name (opens What's this for?) + stack info. */
   function renderItemLi(m) {
     const li = document.createElement('li');
     li.className = 'item-row';
@@ -369,17 +695,25 @@
     }
     const text = document.createElement('span');
     text.className = 'item-text';
-    text.textContent = m.name + ' × ' + m.stackSize + (m.value ? ' (value ' + m.value + ')' : '') + (m.preferenceName ? ' — ' + m.preferenceName : '');
+    const nameBtn = document.createElement('button');
+    nameBtn.type = 'button';
+    nameBtn.className = 'item-lookup-link';
+    nameBtn.textContent = m.name;
+    nameBtn.addEventListener('click', () => openItemUsedForModal(m.name, m.typeId));
+    text.appendChild(nameBtn);
+    text.appendChild(document.createTextNode(' × ' + m.stackSize + (m.value ? ' (value ' + m.value + ')' : '') + (m.preferenceName ? ' — ' + m.preferenceName : '')));
     li.appendChild(text);
     return li;
   }
 
+  /** Project Gorgon wiki URL for a display name (spaces → underscores). */
   function npcWikiUrl(displayName) {
     if (!displayName || typeof displayName !== 'string') return null;
     const slug = displayName.trim().replace(/\s+/g, '_');
     return 'https://wiki.projectgorgon.com/wiki/' + encodeURIComponent(slug);
   }
 
+  /** Append "Map: [vault link] — stack" to parent; vault name links to wiki. */
   function appendLocationWithWikiLink(parent, mapName, vaultId, stack) {
     const vaultName = vaultFriendlyName(vaultId);
     parent.appendChild(document.createTextNode(mapName + ': '));
@@ -398,6 +732,7 @@
     parent.appendChild(document.createTextNode(' — ' + stack));
   }
 
+  /** Append "Current favor with [NPC link]suffix" (NPC links to wiki). */
   function appendFavorLine(parent, npcDisplayName, suffix) {
     parent.appendChild(document.createTextNode('Current favor with '));
     const url = npcWikiUrl(npcDisplayName);
@@ -415,6 +750,7 @@
     parent.appendChild(document.createTextNode(suffix));
   }
 
+  /** Favor Finder: render favor line and match list grouped by city then vault (Love/Like). */
   function renderResults(npcDisplayName, favorLevel, matches) {
     resultsSection.hidden = false;
     noMatches.hidden = matches.length > 0;
@@ -509,6 +845,7 @@
     });
   }
 
+  /** Bootstrap: load CDN, wire file inputs and tab/panel switching, populate dropdowns. */
   function init() {
     document.getElementById('copyrightYear').textContent = new Date().getFullYear();
     mapSelect.innerHTML = '<option value="">— Loading CDN… —</option>';
@@ -530,6 +867,7 @@
 
     mapSelect.addEventListener('change', () => {
       populateNpcDropdown(mapSelect.value);
+      runMatch();
     });
 
     npcSelect.addEventListener('change', runMatch);
@@ -538,6 +876,7 @@
     initTabs();
   }
 
+  /** Show one feature panel; run panel-specific logic (e.g. render Full Inventory, run Storage Saver). */
   function switchTab(panelId) {
     document.querySelectorAll('.feature-tabs .tab').forEach((t) => {
       t.classList.remove('active');
@@ -555,19 +894,34 @@
     if (panel) {
       panel.classList.remove('hidden');
     }
+    if (panelId === 'panelFavor') {
+      runMatch();
+    }
     if (panelId === 'panelInventory') {
       renderFullInventory();
     }
     if (panelId === 'panelStorage') {
       runStorageSaver();
     }
+    if (panelId === 'panelTripPlan') {
+      populateTripStopOptions();
+      renderTripPlan();
+    }
+    if (panelId === 'panelMods') {
+      renderModFinderResults();
+    }
+    if (panelId === 'panelWhatsThisFor') {
+      if (whatsThisForResults) renderWhatsThisForResults(whatsThisForSearch ? whatsThisForSearch.value : '', null);
+    }
   }
 
+  /** Items array for the first character in charactersItems (shared by Favor, Storage, Full Inventory). */
   function getFirstCharacterItems() {
     const names = Object.keys(charactersItems);
     return names.length ? charactersItems[names[0]] : null;
   }
 
+  /** Map item keywords to a single category (priority order). */
   function getCategoryForItem(keywords) {
     if (!Array.isArray(keywords)) return 'Other';
     const bases = (keywords || []).map(itemKeywordBase);
@@ -580,6 +934,7 @@
     return 'Other';
   }
 
+  /** Category including icon rules: 5792 = Skill Book; 4003 + recipe/work order in name/desc = Recipe or Work Order; name/desc Phlogiston. */
   function getCategoryForItemWithIcon(displayName, iconId, keywords, description) {
     if (iconId === 5792) return 'Skill Book';
     if (iconId === 4003) {
@@ -589,9 +944,12 @@
       if (text.includes('work order')) return 'Work Order';
       if (text.includes('recipe')) return 'Recipe';
     }
+    const nameDesc = ((displayName || '') + ' ' + (description || '')).toLowerCase();
+    if (nameDesc.includes('phlogiston')) return 'Phlogiston';
     return getCategoryForItem(keywords);
   }
 
+  /** Turn one effect string like "{ATTR_NAME}{0.5}" into "Attribute Label +0.5" using attributes.json. */
   function formatEffectDesc(desc, attrs) {
     if (typeof desc !== 'string' || !desc) return desc;
     const braceGroups = desc.match(/\{[^}]+\}/g);
@@ -615,6 +973,7 @@
     return result;
   }
 
+  /** Format effect array; bullet-separated parts get attribute substitution. */
   function formatEffectDescsForDisplay(effectDescs, attrs) {
     if (!Array.isArray(effectDescs) || !effectDescs.length) return [];
     return effectDescs.map((d) => {
@@ -624,6 +983,7 @@
     });
   }
 
+  /** Append text to parent, replacing <icon=123> with img pointing at CDN icon. */
   function appendTextWithIcons(parent, str) {
     if (typeof str !== 'string' || !str) return;
     const re = /<icon=(\d+)>/gi;
@@ -646,6 +1006,7 @@
     }
   }
 
+  /** Resolve export TSysPowers (Power+Tier) to raw effect strings from tsysclientinfo. */
   function getModEffectDescs(tsysPowers) {
     if (!Array.isArray(tsysPowers) || !tsysPowers.length) return [];
     const out = [];
@@ -665,6 +1026,37 @@
     return out;
   }
 
+  /** Like getModEffectDescs but also returns a parallel array of rarity (one per effect line) for Full Inventory mod column. */
+  function getModEffectDescsWithRarities(tsysPowers) {
+    if (!Array.isArray(tsysPowers) || !tsysPowers.length) return { descs: [], rarities: [] };
+    const descs = [];
+    const rarities = [];
+    for (const { Power, Tier } of tsysPowers) {
+      const entry = tsysByInternalName[Power];
+      const rarity = entry ? getModRarity(entry) : null;
+      if (!entry || !entry.Tiers) {
+        descs.push((Power || 'Unknown') + ' (Tier ' + Tier + ')');
+        rarities.push(rarity);
+        continue;
+      }
+      const tierKey = 'id_' + Tier;
+      const tierData = entry.Tiers[tierKey];
+      if (!tierData || !Array.isArray(tierData.EffectDescs)) {
+        descs.push((Power || 'Unknown') + ' (Tier ' + Tier + ')');
+        rarities.push(rarity);
+        continue;
+      }
+      for (const desc of tierData.EffectDescs) {
+        if (typeof desc === 'string' && desc.trim()) {
+          descs.push(desc.trim());
+          rarities.push(rarity);
+        }
+      }
+    }
+    return { descs, rarities };
+  }
+
+  /** Sorted list of combat skills for Mod Finder dropdowns. */
   function getCombatSkillsList() {
     return Object.entries(skills)
       .filter(([, s]) => s && s.Combat === true)
@@ -672,6 +1064,7 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /** Abilities for a skill (deduped by name), for ability dropdowns; excludes Lint_MonsterAbility. */
   function getAbilitiesForSkill(skillKey) {
     if (!skillKey) return [];
     const list = Object.entries(abilities)
@@ -685,6 +1078,7 @@
     return Array.from(byName.values());
   }
 
+  /** Mod entries from tsysclientinfo whose Skill is one of the two selected combat skills. */
   function filterModsBySkills(skill1, skill2) {
     const skillSet = new Set([skill1, skill2].filter(Boolean));
     if (skillSet.size === 0) return [];
@@ -693,6 +1087,7 @@
     );
   }
 
+  /** Group mod entries by equipment slot (Head, Chest, …); a mod can appear in multiple slots. */
   function groupModsBySlot(modEntries) {
     const bySlot = {};
     for (const entry of modEntries) {
@@ -705,6 +1100,7 @@
     return bySlot;
   }
 
+  /** First tier key (e.g. id_1) for a tsys entry for display. */
   function getFirstTierKey(entry) {
     const tiers = entry.Tiers && typeof entry.Tiers === 'object' ? entry.Tiers : {};
     const keys = Object.keys(tiers);
@@ -714,7 +1110,26 @@
     return 'id_' + Math.min(...numeric);
   }
 
+  /** Best MinRarity across all tiers of a tsys entry (for display). Order: Uncommon < Rare < Exceptional < Epic < Legendary. */
+  function getModRarity(entry) {
+    if (!entry || !entry.Tiers || typeof entry.Tiers !== 'object') return null;
+    const order = { Uncommon: 1, Rare: 2, Exceptional: 3, Epic: 4, Legendary: 5 };
+    let best = null;
+    let bestRank = 0;
+    for (const tier of Object.values(entry.Tiers)) {
+      const r = tier && tier.MinRarity && typeof tier.MinRarity === 'string' ? tier.MinRarity.trim() : null;
+      if (!r) continue;
+      const rank = order[r] || 0;
+      if (rank > bestRank) {
+        bestRank = rank;
+        best = r;
+      }
+    }
+    return best;
+  }
+
   let abilityInternalNameToIconId = null;
+  /** Map ability InternalName (uppercase) → IconID for mod icons (MOD_ABILITY_* in effect text). */
   function getAbilityInternalNameToIconIdMap() {
     if (abilityInternalNameToIconId) return abilityInternalNameToIconId;
     abilityInternalNameToIconId = {};
@@ -728,6 +1143,7 @@
     return abilityInternalNameToIconId;
   }
 
+  /** If mod effect references one ability (MOD_ABILITY_*), return that ability's IconID; else null. */
   function getModAbilityIconId(entry) {
     const tierKey = getFirstTierKey(entry);
     if (!tierKey || !entry.Tiers || !entry.Tiers[tierKey] || !Array.isArray(entry.Tiers[tierKey].EffectDescs)) return null;
@@ -743,6 +1159,7 @@
     return null;
   }
 
+  /** Selected slot filter checkboxes; null = no filter (show all slots). */
   function getSelectedSlotFilter() {
     if (!modFinderSlotCheckboxes) return null;
     const checked = Array.from(modFinderSlotCheckboxes.querySelectorAll('input[type="checkbox"]:checked'))
@@ -750,11 +1167,22 @@
     return checked.length === 0 ? null : checked;
   }
 
+  /** Selected rarity filter; empty string = show all rarities. */
+  function getSelectedRarityFilter() {
+    return (modFinderRarity && modFinderRarity.value) ? modFinderRarity.value.trim() : '';
+  }
+
+  /** Build Mod Finder results: sections by slot, each with mod name + effect text; apply slot filter. */
   function renderModFinderResults() {
     if (!modFinderResults || !modFinderEmpty) return;
     modFinderResults.innerHTML = '';
     modFinderResults.hidden = true;
     modFinderEmpty.hidden = true;
+    if (modFinderSkill1 && modFinderSkill1.disabled) {
+      modFinderEmpty.textContent = 'Loading game data…';
+      modFinderEmpty.hidden = false;
+      return;
+    }
     const skill1 = modFinderSkill1 && modFinderSkill1.value ? modFinderSkill1.value : '';
     const skill2 = modFinderSkill2 && modFinderSkill2.value ? modFinderSkill2.value : '';
     const mods = filterModsBySkills(skill1, skill2);
@@ -777,9 +1205,15 @@
         return false;
       });
     }
+    const selectedRarity = getSelectedRarityFilter();
     const grid = document.createElement('div');
     grid.className = 'mod-finder-results-grid';
     for (const slot of slotOrder) {
+      let slotEntries = bySlot[slot];
+      if (selectedRarity) {
+        slotEntries = slotEntries.filter((entry) => getModRarity(entry) === selectedRarity);
+      }
+      if (slotEntries.length === 0) continue;
       const section = document.createElement('section');
       section.className = 'mod-finder-slot-section';
       const h3 = document.createElement('h3');
@@ -787,7 +1221,7 @@
       section.appendChild(h3);
       const list = document.createElement('ul');
       list.className = 'mod-finder-mod-list';
-      for (const entry of bySlot[slot]) {
+      for (const entry of slotEntries) {
         const li = document.createElement('li');
         li.className = 'mod-finder-mod-item';
         const modIconId = getModAbilityIconId(entry);
@@ -804,6 +1238,13 @@
         nameSpan.className = 'mod-finder-mod-name';
         nameSpan.textContent = entry.Suffix || entry.InternalName || 'Unknown';
         content.appendChild(nameSpan);
+        const modRarity = getModRarity(entry);
+        if (modRarity) {
+          const raritySpan = document.createElement('span');
+          raritySpan.className = 'mod-finder-rarity-badge rarity-' + modRarity.toLowerCase().replace(/\s+/g, '-');
+          raritySpan.textContent = modRarity;
+          content.appendChild(raritySpan);
+        }
         const tierKey = getFirstTierKey(entry);
         if (tierKey && entry.Tiers[tierKey] && Array.isArray(entry.Tiers[tierKey].EffectDescs)) {
           const rawDescs = formatEffectDescsForDisplay(entry.Tiers[tierKey].EffectDescs, attributes);
@@ -821,9 +1262,16 @@
       grid.appendChild(section);
     }
     modFinderResults.appendChild(grid);
-    modFinderResults.hidden = false;
+    if (grid.children.length === 0) {
+      modFinderEmpty.textContent = selectedRarity ? 'No mods of that rarity for the selected skill(s).' : 'No mods found for the selected skill(s).';
+      modFinderEmpty.hidden = false;
+      modFinderResults.hidden = true;
+    } else {
+      modFinderResults.hidden = false;
+    }
   }
 
+  /** Fill the two combat-skill dropdowns in Mod Finder. */
   function populateModFinderSkillDropdowns() {
     const list = getCombatSkillsList();
     const opts = (sel) => {
@@ -844,6 +1292,7 @@
     if (modFinderSkill2) opts(modFinderSkill2);
   }
 
+  /** Build slot filter checkboxes (Head, Chest, … + Other) in Mod Finder. */
   function buildModFinderSlotFilter() {
     if (!modFinderSlotCheckboxes) return;
     modFinderSlotCheckboxes.innerHTML = '';
@@ -871,6 +1320,72 @@
     modFinderSlotCheckboxes.appendChild(otherLabel);
   }
 
+  /** Build { skillKey: maxLevel } from item's TSysPowers (mods). Equipment equip requirements come from mod tiers' Skill + SkillLevelPrereq. */
+  function getSkillReqsFromTsysPowers(tsysPowers) {
+    if (!Array.isArray(tsysPowers) || !tsysPowers.length) return {};
+    const bySkill = {};
+    for (const { Power, Tier } of tsysPowers) {
+      const entry = tsysByInternalName[Power];
+      if (!entry || !entry.Skill || !entry.Tiers) continue;
+      const tierKey = 'id_' + Tier;
+      const tierData = entry.Tiers[tierKey];
+      const level = tierData && tierData.SkillLevelPrereq != null ? Number(tierData.SkillLevelPrereq) : null;
+      if (level == null || level < 0) continue;
+      const skillKey = entry.Skill;
+      if (bySkill[skillKey] == null || level > bySkill[skillKey]) bySkill[skillKey] = level;
+    }
+    return bySkill;
+  }
+
+  /** Format skill map (e.g. { Rabbit: 80, IceMagic: 80 }) as "Requires Rabbit 80 & Ice Magic 80". */
+  function formatSkillReqs(skillReqs) {
+    if (!skillReqs || typeof skillReqs !== 'object') return null;
+    const parts = Object.entries(skillReqs)
+      .filter(([, level]) => level != null && Number(level) >= 0)
+      .map(([skillKey, level]) => {
+        const name = (skills[skillKey] && skills[skillKey].Name) ? skills[skillKey].Name.trim() : skillKey;
+        return name + ' ' + Number(level);
+      });
+    if (parts.length === 0) return null;
+    return 'Requires ' + parts.join(' & ');
+  }
+
+  /** Merge two skill-req maps (take max level per skill). */
+  function mergeSkillReqs(a, b) {
+    const out = {};
+    for (const [k, v] of Object.entries(a || {})) {
+      if (v != null && Number(v) >= 0) out[k] = Number(v);
+    }
+    for (const [k, v] of Object.entries(b || {})) {
+      if (v == null || Number(v) < 0) continue;
+      const num = Number(v);
+      if (out[k] == null || num > out[k]) out[k] = num;
+    }
+    return out;
+  }
+
+  /** Sorted list of map names (from storage vaults' city headings) for Full Inventory filter. */
+  function getFullInventoryMapOptions() {
+    const set = new Set();
+    for (const vaultId of Object.keys(storageVaults || {})) {
+      const name = vaultCityHeading(vaultId);
+      if (name && name !== 'Any city') set.add(name);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }
+
+  /** Sorted list of { id, name } for storage vaults (Full Inventory filter). If mapFilter is set, only vaults in that map. */
+  function getFullInventoryVaultOptions(mapFilter) {
+    let entries = Object.entries(storageVaults || {});
+    if (mapFilter && mapFilter.trim()) {
+      entries = entries.filter(([id]) => vaultCityHeading(id) === mapFilter);
+    }
+    return entries
+      .map(([id, v]) => ({ id, name: (v && v.NpcFriendlyName) ? v.NpcFriendlyName : id }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }
+
+  /** Aggregate items by typeId+name (keep mod variance); assign category; return { category: [rows] }. */
   function buildFullInventory() {
     const userItems = getFirstCharacterItems();
     if (!userItems || !userItems.length) return null;
@@ -883,13 +1398,17 @@
         byKey[key] = {
           typeId,
           name,
-          vaults: []
+          vaults: [],
+          rarity: null
         };
       }
       byKey[key].vaults.push({
         vault: row.StorageVault || 'Unknown',
         stack: row.StackSize ?? 1,
       });
+      if (row.Rarity && typeof row.Rarity === 'string' && byKey[key].rarity == null) {
+        byKey[key].rarity = row.Rarity.trim();
+      }
       if (row.TSysPowers && Array.isArray(row.TSysPowers) && row.TSysPowers.length > 0 && !byKey[key].tsysPowers) {
         byKey[key].tsysPowers = row.TSysPowers;
       }
@@ -907,11 +1426,15 @@
         ? cdnItem.Description.trim()
         : null;
       const category = getCategoryForItemWithIcon(displayName, iconId, keywords, description);
+      const cdnReqs = (cdnItem && cdnItem.SkillReqs) || {};
+      const tsysReqs = getSkillReqsFromTsysPowers(data.tsysPowers);
+      const mergedReqs = mergeSkillReqs(cdnReqs, tsysReqs);
+      const skillReqsText = formatSkillReqs(mergedReqs);
       const rawEffectDescs = (cdnItem && cdnItem.EffectDescs && Array.isArray(cdnItem.EffectDescs))
         ? cdnItem.EffectDescs
         : [];
       const effectDescs = formatEffectDescsForDisplay(rawEffectDescs, attributes);
-      const rawModDescs = getModEffectDescs(data.tsysPowers);
+      const { descs: rawModDescs, rarities: modRarities } = getModEffectDescsWithRarities(data.tsysPowers);
       const modDescs = formatEffectDescsForDisplay(rawModDescs, attributes);
       let total = 0;
       const locationParts = [];
@@ -923,12 +1446,16 @@
       if (!byCategory[category]) byCategory[category] = [];
       byCategory[category].push({
         displayName,
+        typeId: data.typeId,
         iconId,
         total,
         locations: locationParts,
         effectDescs,
         modDescs,
+        modRarities: modRarities || [],
         description,
+        rarity: data.rarity || null,
+        skillReqsText: skillReqsText || null,
       });
     }
     for (const cat of Object.keys(byCategory)) {
@@ -937,6 +1464,7 @@
     return byCategory;
   }
 
+  /** Render Full Inventory: category sections, tables (Equipment gets Mods column), search + category filter. */
   function renderFullInventory() {
     if (!fullInventoryResults) return;
     fullInventoryResults.innerHTML = '';
@@ -951,12 +1479,46 @@
         fullInventoryCategory.innerHTML = '<option value="">All categories</option>';
         fullInventoryCategory.disabled = true;
       }
+      if (fullInventoryMap) { fullInventoryMap.innerHTML = '<option value="">All maps</option>'; fullInventoryMap.disabled = true; }
+      if (fullInventoryVault) { fullInventoryVault.innerHTML = '<option value="">All vaults</option>'; fullInventoryVault.disabled = true; }
       if (fullInventorySearch) fullInventorySearch.disabled = true;
       return;
     }
     const selectedCategory = fullInventoryCategory ? fullInventoryCategory.value : '';
+    const selectedMap = fullInventoryMap && fullInventoryMap.value ? fullInventoryMap.value.trim() : '';
+    const selectedVault = fullInventoryVault && fullInventoryVault.value ? fullInventoryVault.value.trim() : '';
     if (fullInventoryCategory) fullInventoryCategory.disabled = false;
     if (fullInventorySearch) fullInventorySearch.disabled = false;
+    if (fullInventoryMap) {
+      fullInventoryMap.disabled = false;
+      const mapOpts = getFullInventoryMapOptions();
+      if (fullInventoryMap.options.length !== mapOpts.length + 1) {
+        fullInventoryMap.innerHTML = '<option value="">All maps</option>';
+        mapOpts.forEach((m) => {
+          const o = document.createElement('option');
+          o.value = m;
+          o.textContent = m;
+          fullInventoryMap.appendChild(o);
+        });
+      }
+    }
+    if (fullInventoryVault) {
+      fullInventoryVault.disabled = false;
+      const vaultOpts = getFullInventoryVaultOptions(selectedMap);
+      const currentVaultValue = fullInventoryVault.value;
+      fullInventoryVault.innerHTML = '<option value="">All vaults</option>';
+      vaultOpts.forEach(({ id, name }) => {
+        const o = document.createElement('option');
+        o.value = id;
+        o.textContent = name;
+        fullInventoryVault.appendChild(o);
+      });
+      if (currentVaultValue && vaultOpts.some((v) => v.id === currentVaultValue)) {
+        fullInventoryVault.value = currentVaultValue;
+      } else if (currentVaultValue && !vaultOpts.some((v) => v.id === currentVaultValue)) {
+        fullInventoryVault.value = '';
+      }
+    }
     if (fullInventoryCategory) {
       const opts = fullInventoryCategory.querySelectorAll('option');
       const hasOptions = opts.length > 1;
@@ -981,16 +1543,24 @@
       const text = [
         row.displayName || '',
         row.description || '',
+        row.skillReqsText || '',
         (row.effectDescs || []).join(' '),
         (row.modDescs || []).join(' '),
+        (row.modRarities || []).join(' '),
       ].join(' ').toLowerCase();
       return text.includes(searchTerm);
     };
     const categoriesToShow = selectedCategory
       ? (byCategory[selectedCategory] ? [selectedCategory] : [])
       : FULL_INVENTORY_CATEGORY_ORDER;
+    const matchesLocation = (row) => {
+      if (selectedMap && !row.locations.some((l) => l.mapName === selectedMap)) return false;
+      if (selectedVault && !row.locations.some((l) => l.vaultId === selectedVault)) return false;
+      return true;
+    };
     for (const cat of categoriesToShow) {
       let rows = byCategory[cat];
+      if (rows) rows = rows.filter(matchesLocation);
       if (searchTerm && rows) rows = rows.filter(matchesSearch);
       const section = document.createElement('div');
       section.className = 'full-inventory-section';
@@ -1021,15 +1591,30 @@
         const tr = document.createElement('tr');
         const tdIcon = document.createElement('td');
         tdIcon.setAttribute('data-label', 'Icon');
+        const iconCellWrap = document.createElement('div');
+        iconCellWrap.className = 'full-inventory-icon-cell';
+        if (row.rarity) {
+          const raritySpan = document.createElement('span');
+          raritySpan.className = 'full-inventory-rarity-badge rarity-' + row.rarity.toLowerCase().replace(/\s+/g, '-');
+          raritySpan.textContent = row.rarity;
+          iconCellWrap.appendChild(raritySpan);
+        }
         if (row.iconId != null) {
           const img = document.createElement('img');
           img.src = CDN_ICONS_BASE + '/icon_' + row.iconId + '.png';
           img.alt = '';
           img.className = 'item-icon';
-          tdIcon.appendChild(img);
+          iconCellWrap.appendChild(img);
         } else {
-          tdIcon.textContent = '—';
+          iconCellWrap.appendChild(document.createTextNode('—'));
         }
+        if (isEquipment && row.skillReqsText) {
+          const reqEl = document.createElement('div');
+          reqEl.className = 'full-inventory-skill-reqs';
+          reqEl.textContent = row.skillReqsText;
+          iconCellWrap.appendChild(reqEl);
+        }
+        tdIcon.appendChild(iconCellWrap);
         tr.appendChild(tdIcon);
         const tdName = document.createElement('td');
         tdName.setAttribute('data-label', 'Name');
@@ -1037,7 +1622,12 @@
         nameBlock.className = 'full-inventory-name-cell';
         const nameLine = document.createElement('div');
         nameLine.className = 'full-inventory-item-name';
-        nameLine.textContent = row.displayName;
+        const nameBtn = document.createElement('button');
+        nameBtn.type = 'button';
+        nameBtn.className = 'item-lookup-link';
+        nameBtn.textContent = row.displayName;
+        nameBtn.addEventListener('click', () => openItemUsedForModal(row.displayName, row.typeId));
+        nameLine.appendChild(nameBtn);
         nameBlock.appendChild(nameLine);
         if (row.description) {
           const descEl = document.createElement('div');
@@ -1064,10 +1654,21 @@
           if (row.modDescs && row.modDescs.length > 0) {
             const modWrap = document.createElement('div');
             modWrap.className = 'full-inventory-mod-list';
-            row.modDescs.forEach((modText) => {
+            const rarities = row.modRarities || [];
+            row.modDescs.forEach((modText, i) => {
               const modLine = document.createElement('div');
               modLine.className = 'full-inventory-mod-descs';
-              appendTextWithIcons(modLine, modText);
+              const modLineContent = document.createElement('span');
+              modLineContent.className = 'full-inventory-mod-line-content';
+              if (rarities[i]) {
+                const raritySpan = document.createElement('span');
+                raritySpan.className = 'full-inventory-mod-rarity-badge rarity-' + rarities[i].toLowerCase().replace(/\s+/g, '-');
+                raritySpan.textContent = rarities[i];
+                modLine.appendChild(raritySpan);
+                modLine.appendChild(document.createTextNode(' '));
+              }
+              appendTextWithIcons(modLineContent, modText);
+              modLine.appendChild(modLineContent);
               modWrap.appendChild(modLine);
             });
             tdMods.appendChild(modWrap);
@@ -1102,15 +1703,10 @@
     }
   }
 
-  function runStorageSaver() {
+  /** Storage Saver: compute duplicate item types across vaults (slots saveable). Returns null if no items; else { duplicates, totalSlots }. */
+  function getStorageSaverDuplicates() {
     const userItems = getFirstCharacterItems();
-    storageSaverResults.hidden = true;
-    storageSaverResults.innerHTML = '';
-    if (!userItems || !userItems.length) {
-      storageSaverStatus.textContent = 'Load an items export above first.';
-      return;
-    }
-    storageSaverStatus.textContent = 'Finding duplicate stacks…';
+    if (!userItems || !userItems.length) return null;
     const byTypeId = {};
     for (const row of userItems) {
       const id = row.TypeID;
@@ -1144,8 +1740,24 @@
       });
     }
     duplicates.sort((a, b) => b.slotsSaveable - a.slotsSaveable || a.name.localeCompare(b.name));
+    const totalSlots = duplicates.reduce((sum, d) => sum + d.slotsSaveable, 0);
+    return { duplicates, totalSlots };
+  }
+
+  /** Storage Saver: find items in 2+ vaults, compute slots saveable, render list with icons and Map: Vault — n. */
+  function runStorageSaver() {
+    storageSaverResults.hidden = true;
+    storageSaverResults.innerHTML = '';
+    const userItems = getFirstCharacterItems();
+    if (!userItems || !userItems.length) {
+      storageSaverStatus.textContent = 'Load an items export above first.';
+      renderTripPlan();
+      return;
+    }
+    storageSaverStatus.textContent = 'Finding duplicate stacks…';
+    const result = getStorageSaverDuplicates();
     storageSaverStatus.textContent = '';
-    if (duplicates.length === 0) {
+    if (!result || result.duplicates.length === 0) {
       storageSaverResults.hidden = false;
       const p = document.createElement('p');
       p.className = 'no-duplicates';
@@ -1153,8 +1765,8 @@
       storageSaverResults.appendChild(p);
       return;
     }
+    const { duplicates, totalSlots } = result;
     storageSaverResults.hidden = false;
-    const totalSlots = duplicates.reduce((sum, d) => sum + d.slotsSaveable, 0);
     const totalDiv = document.createElement('div');
     totalDiv.className = 'storage-saver-total';
     totalDiv.textContent = 'You could save ' + totalSlots + ' slot(s) total by consolidating the items below.';
@@ -1172,7 +1784,12 @@
         header.appendChild(img);
       }
       const h3 = document.createElement('h3');
-      h3.textContent = d.name;
+      const nameBtn = document.createElement('button');
+      nameBtn.type = 'button';
+      nameBtn.className = 'item-lookup-link storage-saver-item-name';
+      nameBtn.textContent = d.name;
+      nameBtn.addEventListener('click', () => openItemUsedForModal(d.name, d.typeId));
+      h3.appendChild(nameBtn);
       header.appendChild(h3);
       block.appendChild(header);
       const saveP = document.createElement('p');
@@ -1191,12 +1808,181 @@
     }
   }
 
+  /** Fill all trip stop dropdowns with map options (only if not yet populated). */
+  function populateTripStopOptions() {
+    const mapOpts = getFullInventoryMapOptions();
+    if (!mapOpts.length || !tripPlannerStops) return;
+    const selects = tripPlannerStops.querySelectorAll('select');
+    for (const sel of selects) {
+      if (sel.options.length > 1) continue;
+      sel.innerHTML = '<option value="">— Select map —</option>';
+      for (const mapName of mapOpts) {
+        const o = document.createElement('option');
+        o.value = mapName;
+        o.textContent = mapName;
+        sel.appendChild(o);
+      }
+    }
+  }
+
+  /** Build and render the trip plan: per stop, what to pick up (for later drops) and what to drop here (requires at least 2 stops). */
+  function renderTripPlan() {
+    if (!tripPlannerOutput) return;
+    const result = getStorageSaverDuplicates();
+    const stops = [];
+    if (tripPlannerStops) {
+      tripPlannerStops.querySelectorAll('select').forEach((sel) => {
+        const v = (sel.value || '').trim();
+        if (v) stops.push(v);
+      });
+    }
+    tripPlannerOutput.innerHTML = '';
+    tripPlannerOutput.hidden = true;
+    if (!result || result.duplicates.length === 0) {
+      tripPlannerOutput.hidden = false;
+      const p = document.createElement('p');
+      p.className = 'trip-planner-empty';
+      p.textContent = 'Load an items export in Your data, then use Storage Saver to see duplicates. Come back here to plan your route.';
+      tripPlannerOutput.appendChild(p);
+      return;
+    }
+    if (stops.length < 2) {
+      tripPlannerOutput.hidden = false;
+      const p = document.createElement('p');
+      p.className = 'trip-planner-empty';
+      p.textContent = 'Pick at least two stops to see what to take from one place and put in another.';
+      tripPlannerOutput.appendChild(p);
+      return;
+    }
+    const duplicates = result.duplicates;
+    const itemMaps = (d) => {
+      const set = new Set();
+      for (const v of d.vaults) set.add(vaultCityHeading(v.vault) || 'Other');
+      return set;
+    };
+    const relevantItems = duplicates.filter((d) => {
+      const maps = itemMaps(d);
+      let count = 0;
+      for (const mapName of stops) {
+        if (maps.has(mapName)) count++;
+        if (count >= 2) return true;
+      }
+      return false;
+    });
+    if (relevantItems.length === 0) {
+      tripPlannerOutput.hidden = false;
+      const p = document.createElement('p');
+      p.className = 'trip-planner-empty';
+      p.textContent = 'None of your duplicate items are split across the selected stops. Try a different route.';
+      tripPlannerOutput.appendChild(p);
+      return;
+    }
+    tripPlannerOutput.hidden = false;
+    const laterStopsForItem = (d, fromIndex) => {
+      const maps = itemMaps(d);
+      const list = [];
+      for (let j = fromIndex + 1; j < stops.length; j++) {
+        if (maps.has(stops[j])) list.push(stops[j]);
+      }
+      return list;
+    };
+    for (let i = 0; i < stops.length; i++) {
+      const mapName = stops[i];
+      const isFirst = i === 0;
+      const isLast = i === stops.length - 1;
+      const pickUpItems = relevantItems.filter((d) => {
+        const maps = itemMaps(d);
+        if (!maps.has(mapName)) return false;
+        for (let j = i + 1; j < stops.length; j++) {
+          if (maps.has(stops[j])) return true;
+        }
+        return false;
+      });
+      const dropItems = relevantItems.filter((d) => itemMaps(d).has(mapName));
+      const hasPickUp = !isLast && pickUpItems.length > 0;
+      const hasDrop = !isFirst && dropItems.length > 0;
+      if (!hasPickUp && !hasDrop) continue;
+      const legDiv = document.createElement('div');
+      legDiv.className = 'trip-planner-leg';
+      const h4 = document.createElement('h4');
+      h4.textContent = 'At ' + mapName + ':';
+      legDiv.appendChild(h4);
+      if (hasPickUp) {
+        const pickP = document.createElement('p');
+        pickP.className = 'trip-planner-subhead';
+        pickP.textContent = 'Pick up (to drop at later stops):';
+        legDiv.appendChild(pickP);
+        const ul = document.createElement('ul');
+        ul.className = 'trip-planner-list';
+        for (const d of pickUpItems) {
+          const vaultsHere = d.vaults.filter((v) => (vaultCityHeading(v.vault) || 'Other') === mapName);
+          const parts = vaultsHere.map((v) => vaultFriendlyName(v.vault) + ' — ' + v.stack);
+          const later = laterStopsForItem(d, i);
+          const li = document.createElement('li');
+          li.className = 'trip-planner-item';
+          if (d.iconId != null) {
+            const img = document.createElement('img');
+            img.src = CDN_ICONS_BASE + '/icon_' + d.iconId + '.png';
+            img.alt = '';
+            img.className = 'item-icon';
+            li.appendChild(img);
+          }
+          const span = document.createElement('span');
+          const nameBtn = document.createElement('button');
+          nameBtn.type = 'button';
+          nameBtn.className = 'item-lookup-link';
+          nameBtn.textContent = d.name;
+          nameBtn.addEventListener('click', () => openItemUsedForModal(d.name, d.typeId));
+          span.appendChild(nameBtn);
+          span.appendChild(document.createTextNode(' from ' + parts.join(', ') + ' → drop at ' + later.join(', ') + '.'));
+          li.appendChild(span);
+          ul.appendChild(li);
+        }
+        legDiv.appendChild(ul);
+      }
+      if (hasDrop) {
+        const dropP = document.createElement('p');
+        dropP.className = 'trip-planner-subhead';
+        dropP.textContent = isLast ? 'Drop here (final stop—consolidate):' : 'Drop here (consolidate):';
+        legDiv.appendChild(dropP);
+        const ul = document.createElement('ul');
+        ul.className = 'trip-planner-list';
+        for (const d of dropItems) {
+          const vaultsHere = d.vaults.filter((v) => (vaultCityHeading(v.vault) || 'Other') === mapName);
+          const slotsAtStop = Math.max(0, vaultsHere.length - 1);
+          const li = document.createElement('li');
+          li.className = 'trip-planner-item';
+          if (d.iconId != null) {
+            const img = document.createElement('img');
+            img.src = CDN_ICONS_BASE + '/icon_' + d.iconId + '.png';
+            img.alt = '';
+            img.className = 'item-icon';
+            li.appendChild(img);
+          }
+          const span = document.createElement('span');
+          const nameBtn = document.createElement('button');
+          nameBtn.type = 'button';
+          nameBtn.className = 'item-lookup-link';
+          nameBtn.textContent = d.name;
+          nameBtn.addEventListener('click', () => openItemUsedForModal(d.name, d.typeId));
+          span.appendChild(nameBtn);
+          span.appendChild(document.createTextNode(' — put in one vault here' + (slotsAtStop > 0 ? ' to save ' + slotsAtStop + ' slot(s).' : '.')));
+          li.appendChild(span);
+          ul.appendChild(li);
+        }
+        legDiv.appendChild(ul);
+      }
+      tripPlannerOutput.appendChild(legDiv);
+    }
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
   }
 
+  /** Wire tab clicks to switchTab; wire dropdowns/search/modal/back-to-top. */
   function initTabs() {
     document.querySelectorAll('.feature-tabs .tab').forEach((t) => {
       t.addEventListener('click', () => {
@@ -1207,6 +1993,12 @@
     if (fullInventoryCategory) {
       fullInventoryCategory.addEventListener('change', renderFullInventory);
     }
+    if (fullInventoryMap) {
+      fullInventoryMap.addEventListener('change', renderFullInventory);
+    }
+    if (fullInventoryVault) {
+      fullInventoryVault.addEventListener('change', renderFullInventory);
+    }
     if (fullInventorySearch) {
       fullInventorySearch.addEventListener('input', renderFullInventory);
     }
@@ -1216,10 +2008,67 @@
     if (modFinderSkill2) {
       modFinderSkill2.addEventListener('change', renderModFinderResults);
     }
+    if (modFinderRarity) {
+      modFinderRarity.addEventListener('change', renderModFinderResults);
+    }
     if (modFinderSlotCheckboxes) {
       modFinderSlotCheckboxes.addEventListener('change', (e) => {
         if (e.target && e.target.matches('input[type="checkbox"]')) renderModFinderResults();
       });
+    }
+    if (whatsThisForSearch) {
+      whatsThisForSearch.addEventListener('input', () => {
+        clearTimeout(whatsThisForDebounceTimer);
+        whatsThisForDebounceTimer = setTimeout(() => {
+          renderWhatsThisForResults(whatsThisForSearch.value, null);
+        }, 200);
+      });
+    }
+    if (itemUsedForModalClose) {
+      itemUsedForModalClose.addEventListener('click', closeItemUsedForModal);
+    }
+    if (itemUsedForModal) {
+      const backdrop = itemUsedForModal.querySelector('.item-used-for-modal-backdrop');
+      if (backdrop) backdrop.addEventListener('click', closeItemUsedForModal);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && itemUsedForModal && !itemUsedForModal.hidden) closeItemUsedForModal();
+      });
+    }
+    if (tripPlannerStops) {
+      tripPlannerStops.querySelectorAll('select').forEach((sel) => {
+        sel.addEventListener('change', renderTripPlan);
+      });
+    }
+    if (tripPlannerAddStop) {
+      tripPlannerAddStop.addEventListener('click', () => {
+        if (!tripPlannerStops) return;
+        const selects = tripPlannerStops.querySelectorAll('select');
+        const n = selects.length + 1;
+        const label = document.createElement('label');
+        const span = document.createElement('span');
+        span.textContent = 'Stop ' + n;
+        label.appendChild(span);
+        const sel = document.createElement('select');
+        sel.setAttribute('aria-label', 'Stop ' + n + ' map');
+        sel.innerHTML = '<option value="">— Select map —</option>';
+        label.appendChild(sel);
+        tripPlannerStops.appendChild(label);
+        populateTripStopOptions();
+        sel.addEventListener('change', renderTripPlan);
+      });
+    }
+    if (tripPlannerClear && tripPlannerStops) {
+      tripPlannerClear.addEventListener('click', () => {
+        const labels = tripPlannerStops.querySelectorAll('label');
+        for (let i = 2; i < labels.length; i++) labels[i].remove();
+        const selects = tripPlannerStops.querySelectorAll('select');
+        selects.forEach((sel) => { sel.value = ''; });
+        renderTripPlan();
+      });
+    }
+    const goToTripPlanTab = $('goToTripPlanTab');
+    if (goToTripPlanTab) {
+      goToTripPlanTab.addEventListener('click', () => switchTab('panelTripPlan'));
     }
     if (backToTopBtn) {
       backToTopBtn.addEventListener('click', () => {

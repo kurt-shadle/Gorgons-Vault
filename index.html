@@ -31,8 +31,10 @@
     <nav class="feature-tabs" role="tablist" aria-label="Features">
       <button type="button" class="tab active" role="tab" id="tabFavor" aria-selected="true" aria-controls="panelFavor" data-panel="panelFavor">Favor Finder</button>
       <button type="button" class="tab" role="tab" id="tabStorage" aria-selected="false" aria-controls="panelStorage" data-panel="panelStorage">Storage Saver</button>
+      <button type="button" class="tab" role="tab" id="tabTripPlan" aria-selected="false" aria-controls="panelTripPlan" data-panel="panelTripPlan">Trip plan</button>
       <button type="button" class="tab" role="tab" id="tabInventory" aria-selected="false" aria-controls="panelInventory" data-panel="panelInventory">Full Inventory</button>
       <button type="button" class="tab" role="tab" id="tabMods" aria-selected="false" aria-controls="panelMods" data-panel="panelMods">Mod Finder</button>
+      <button type="button" class="tab" role="tab" id="tabWhatsThisFor" aria-selected="false" aria-controls="panelWhatsThisFor" data-panel="panelWhatsThisFor">What's this for?</button>
     </nav>
 
     <div id="panelFavor" class="feature-panel" role="tabpanel" aria-labelledby="tabFavor">
@@ -66,8 +68,36 @@
       <section class="storage-saver">
         <h2>Storage Saver</h2>
         <p class="panel-desc">Find items split across multiple vaults so you can consolidate stacks and save slots.</p>
+        <p class="storage-saver-tip">Consolidate by destination—when you're at a map, move all listed stacks for that item into one vault there so you only visit each map once.</p>
+        <p class="storage-saver-trip-note">Want to plan a multi-stop route? <button type="button" class="trip-plan-tab-link" id="goToTripPlanTab">Go to Trip plan</button> to pick your stops and see what to take from one place and put in another.</p>
         <div id="storageSaverStatus" class="status" aria-live="polite"></div>
         <div id="storageSaverResults" class="storage-saver-results" hidden></div>
+      </section>
+    </div>
+
+    <div id="panelTripPlan" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabTripPlan">
+      <section class="trip-planner-panel">
+        <h2>Trip plan</h2>
+        <p class="trip-planner-desc">Pick the order of maps you'll visit (at least two). At each stop you'll see what to pick up (to drop at later stops) and what to drop here to consolidate.</p>
+        <div class="trip-planner-stops" id="tripPlannerStops" aria-label="Route stops">
+          <label>
+            <span>Stop 1</span>
+            <select id="tripStop1" aria-label="Stop 1 map">
+              <option value="">— Select map —</option>
+            </select>
+          </label>
+          <label>
+            <span>Stop 2</span>
+            <select id="tripStop2" aria-label="Stop 2 map">
+              <option value="">— Select map —</option>
+            </select>
+          </label>
+        </div>
+        <div class="trip-planner-actions">
+          <button type="button" id="tripPlannerAddStop" class="secondary-btn">Add stop</button>
+          <button type="button" id="tripPlannerClear" class="secondary-btn">Clear route</button>
+        </div>
+        <div id="tripPlannerOutput" class="trip-planner-output" aria-live="polite" hidden></div>
       </section>
     </div>
 
@@ -80,6 +110,18 @@
             <span>Category</span>
             <select id="fullInventoryCategory" aria-label="Filter by category">
               <option value="">All categories</option>
+            </select>
+          </label>
+          <label>
+            <span>Map</span>
+            <select id="fullInventoryMap" aria-label="Filter by map (storage location)">
+              <option value="">All maps</option>
+            </select>
+          </label>
+          <label>
+            <span>Storage / NPC</span>
+            <select id="fullInventoryVault" aria-label="Filter by storage vault">
+              <option value="">All vaults</option>
             </select>
           </label>
           <label>
@@ -110,6 +152,17 @@
                 <option value="">— Loading… —</option>
               </select>
             </label>
+            <label>
+              <span>Rarity</span>
+              <select id="modFinderRarity" aria-label="Filter by mod rarity">
+                <option value="">All rarities</option>
+                <option value="Uncommon">Uncommon</option>
+                <option value="Rare">Rare</option>
+                <option value="Exceptional">Exceptional</option>
+                <option value="Epic">Epic</option>
+                <option value="Legendary">Legendary</option>
+              </select>
+            </label>
           </div>
           <fieldset id="modFinderSlotFilter" class="mod-finder-slot-filter" aria-label="Filter by equipment slot">
             <legend>Slots</legend>
@@ -121,9 +174,33 @@
       </section>
     </div>
 
+    <div id="panelWhatsThisFor" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabWhatsThisFor">
+      <section class="whats-this-for-panel">
+        <h2>What's this for?</h2>
+        <p class="panel-desc">Look up an item to see which recipes use it. Click item names in other features for a quick lookup.</p>
+        <label>
+          <span>Search item</span>
+          <input type="search" id="whatsThisForSearch" placeholder="Search item by name…" aria-label="Search item by name" />
+        </label>
+        <div id="whatsThisForResults" class="whats-this-for-results" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div id="itemUsedForModal" class="item-used-for-modal" role="dialog" aria-labelledby="itemUsedForModalTitle" aria-modal="true" hidden>
+      <div class="item-used-for-modal-backdrop"></div>
+      <div class="item-used-for-modal-content">
+        <h2 id="itemUsedForModalTitle" class="item-used-for-modal-title">What's this used for?</h2>
+        <div id="itemUsedForModalBody" class="item-used-for-modal-body"></div>
+        <div class="item-used-for-modal-actions">
+          <button type="button" id="itemUsedForModalClose" class="primary-btn">Close</button>
+          <a href="#" id="itemUsedForModalOpenTab" class="item-used-for-open-tab-link" hidden>Open in What's this for? tab</a>
+        </div>
+      </div>
+    </div>
+
     <section id="cdnError" class="cdn-error" hidden>
       <h2>CDN data could not be loaded</h2>
-      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, and <code>abilities.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener">CDN data</a> into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
+      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, <code>abilities.json</code>, and <code>recipes.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener">CDN data</a> into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
     </section>
   </main>
 
