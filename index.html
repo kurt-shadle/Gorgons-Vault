@@ -52,7 +52,6 @@
             </select>
           </label>
         </div>
-        <button type="button" id="submitBtn" disabled>Show my giftable items</button>
       </section>
 
       <section class="results" id="resultsSection" aria-live="polite" hidden>
@@ -67,7 +66,6 @@
       <section class="storage-saver">
         <h2>Storage Saver</h2>
         <p class="panel-desc">Find items split across multiple vaults so you can consolidate stacks and save slots.</p>
-        <button type="button" id="storageSaverBtn" class="primary-btn">Find duplicate stacks</button>
         <div id="storageSaverStatus" class="status" aria-live="polite"></div>
         <div id="storageSaverResults" class="storage-saver-results" hidden></div>
       </section>
@@ -83,6 +81,10 @@
             <select id="fullInventoryCategory" aria-label="Filter by category">
               <option value="">All categories</option>
             </select>
+          </label>
+          <label>
+            <span>Search</span>
+            <input type="search" id="fullInventorySearch" placeholder="Search items…" aria-label="Search items by name or description" />
           </label>
         </div>
         <p id="fullInventoryEmpty" class="status" aria-live="polite" hidden>Load an items export above first.</p>

@@ -1,10 +1,11 @@
 /* Project Gorgon Tools */
 
 :root {
+  /* Contrast: all text/background combos meet WCAG 3.5:1 minimum */
   --bg: #1a1b26;
   --surface: #24283b;
   --text: #c0caf5;
-  --muted: #565f89;
+  --muted: #8b94b8; /* brightened from #565f89 for 3.5:1+ on --bg */
   --accent: #7aa2f7;
   --love: #f7768e;
   --like: #9ece6a;
@@ -471,6 +472,10 @@ footer p {
 
 .full-inventory-controls {
   margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
 }
 
 .full-inventory-controls label {
@@ -484,7 +489,8 @@ footer p {
   color: var(--muted);
 }
 
-.full-inventory-controls select {
+.full-inventory-controls select,
+.full-inventory-controls input[type="search"] {
   padding: 0.5rem 0.65rem;
   min-width: 12rem;
   max-width: 20rem;
@@ -495,6 +501,11 @@ footer p {
   color: var(--text);
   font-size: 0.95rem;
   cursor: pointer;
+}
+
+.full-inventory-controls input[type="search"] {
+  cursor: text;
+  min-width: 14rem;
 }
 
 .full-inventory-name-cell {

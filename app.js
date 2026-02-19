@@ -24,19 +24,18 @@
   const characterFiles = $('characterFiles');
   const mapSelect = $('mapSelect');
   const npcSelect = $('npcSelect');
-  const submitBtn = $('submitBtn');
   const dataStatus = $('dataStatus');
   const resultsSection = $('resultsSection');
   const npcFavorEl = $('npcFavor');
   const resultsList = $('resultsList');
   const noMatches = $('noMatches');
   const cdnError = $('cdnError');
-  const storageSaverBtn = $('storageSaverBtn');
   const storageSaverStatus = $('storageSaverStatus');
   const storageSaverResults = $('storageSaverResults');
   const fullInventoryEmpty = $('fullInventoryEmpty');
   const fullInventoryResults = $('fullInventoryResults');
   const fullInventoryCategory = $('fullInventoryCategory');
+  const fullInventorySearch = $('fullInventorySearch');
   const backToTopBtn = $('backToTop');
   const modFinderSkill1 = $('modFinderSkill1');
   const modFinderSkill2 = $('modFinderSkill2');
@@ -381,6 +380,24 @@
     return 'https://wiki.projectgorgon.com/wiki/' + encodeURIComponent(slug);
   }
 
+  function appendLocationWithWikiLink(parent, mapName, vaultId, stack) {
+    const vaultName = vaultFriendlyName(vaultId);
+    parent.appendChild(document.createTextNode(mapName + ': '));
+    const url = npcWikiUrl(vaultName);
+    if (url && vaultName) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'npc-wiki-link';
+      a.textContent = vaultName;
+      parent.appendChild(a);
+    } else {
+      parent.appendChild(document.createTextNode(vaultName));
+    }
+    parent.appendChild(document.createTextNode(' — ' + stack));
+  }
+
   function appendFavorLine(parent, npcDisplayName, suffix) {
     parent.appendChild(document.createTextNode('Current favor with '));
     const url = npcWikiUrl(npcDisplayName);
@@ -449,7 +466,18 @@
         block.className = 'vault-block';
         const title = document.createElement('h3');
         title.className = 'vault-name';
-        title.textContent = vaultFriendlyName(vaultId);
+        const url = npcWikiUrl(vaultFriendlyName(vaultId));
+        if (url) {
+          const a = document.createElement('a');
+          a.href = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'npc-wiki-link';
+          a.textContent = vaultFriendlyName(vaultId);
+          title.appendChild(a);
+        } else {
+          title.textContent = vaultFriendlyName(vaultId);
+        }
         block.appendChild(title);
         const loveList = byVault[vaultId].Love;
         const likeList = byVault[vaultId].Like;
@@ -490,7 +518,6 @@
         npcSelect.innerHTML = '<option value="">— Choose a map first —</option>';
         npcSelect.disabled = true;
         cdnError.hidden = true;
-        enableSubmit();
         populateModFinderSkillDropdowns();
         buildModFinderSlotFilter();
       })
@@ -505,14 +532,10 @@
       populateNpcDropdown(mapSelect.value);
     });
 
-    submitBtn.addEventListener('click', runMatch);
+    npcSelect.addEventListener('change', runMatch);
     itemsFiles.addEventListener('change', onItemsFilesChange);
     characterFiles.addEventListener('change', onCharacterFilesChange);
     initTabs();
-  }
-
-  function enableSubmit() {
-    submitBtn.disabled = false;
   }
 
   function switchTab(panelId) {
@@ -534,6 +557,9 @@
     }
     if (panelId === 'panelInventory') {
       renderFullInventory();
+    }
+    if (panelId === 'panelStorage') {
+      runStorageSaver();
     }
   }
 
@@ -892,7 +918,7 @@
       for (const v of data.vaults) {
         total += v.stack;
         const mapName = vaultCityHeading(v.vault) || 'Other';
-        locationParts.push(mapName + ': ' + vaultFriendlyName(v.vault) + ' — ' + v.stack);
+        locationParts.push({ mapName, vaultId: v.vault, stack: v.stack });
       }
       if (!byCategory[category]) byCategory[category] = [];
       byCategory[category].push({
@@ -925,11 +951,13 @@
         fullInventoryCategory.innerHTML = '<option value="">All categories</option>';
         fullInventoryCategory.disabled = true;
       }
+      if (fullInventorySearch) fullInventorySearch.disabled = true;
       return;
     }
     const selectedCategory = fullInventoryCategory ? fullInventoryCategory.value : '';
+    if (fullInventoryCategory) fullInventoryCategory.disabled = false;
+    if (fullInventorySearch) fullInventorySearch.disabled = false;
     if (fullInventoryCategory) {
-      fullInventoryCategory.disabled = false;
       const opts = fullInventoryCategory.querySelectorAll('option');
       const hasOptions = opts.length > 1;
       const categoriesWithItems = FULL_INVENTORY_CATEGORY_ORDER.filter((c) => byCategory[c] && byCategory[c].length > 0);
@@ -946,11 +974,24 @@
         });
       }
     }
+    const searchTerm = (fullInventorySearch && fullInventorySearch.value ? fullInventorySearch.value : '')
+      .trim().toLowerCase();
+    const matchesSearch = (row) => {
+      if (!searchTerm) return true;
+      const text = [
+        row.displayName || '',
+        row.description || '',
+        (row.effectDescs || []).join(' '),
+        (row.modDescs || []).join(' '),
+      ].join(' ').toLowerCase();
+      return text.includes(searchTerm);
+    };
     const categoriesToShow = selectedCategory
       ? (byCategory[selectedCategory] ? [selectedCategory] : [])
       : FULL_INVENTORY_CATEGORY_ORDER;
     for (const cat of categoriesToShow) {
-      const rows = byCategory[cat];
+      let rows = byCategory[cat];
+      if (searchTerm && rows) rows = rows.filter(matchesSearch);
       const section = document.createElement('div');
       section.className = 'full-inventory-section';
       const heading = document.createElement('h3');
@@ -1046,7 +1087,7 @@
         row.locations.forEach((loc) => {
           const locLine = document.createElement('div');
           locLine.className = 'full-inventory-location-line';
-          locLine.textContent = loc;
+          appendLocationWithWikiLink(locLine, loc.mapName, loc.vaultId, loc.stack);
           locWrap.appendChild(locLine);
         });
         tdLoc.appendChild(locWrap);
@@ -1142,7 +1183,7 @@
       for (const v of d.vaults) {
         const li = document.createElement('li');
         const mapName = vaultCityHeading(v.vault) || 'Other';
-        li.textContent = mapName + ': ' + vaultFriendlyName(v.vault) + ' — ' + v.stack;
+        appendLocationWithWikiLink(li, mapName, v.vault, v.stack);
         ul.appendChild(li);
       }
       block.appendChild(ul);
@@ -1163,9 +1204,11 @@
         if (panelId) switchTab(panelId);
       });
     });
-    if (storageSaverBtn) storageSaverBtn.addEventListener('click', runStorageSaver);
     if (fullInventoryCategory) {
       fullInventoryCategory.addEventListener('change', renderFullInventory);
+    }
+    if (fullInventorySearch) {
+      fullInventorySearch.addEventListener('input', renderFullInventory);
     }
     if (modFinderSkill1) {
       modFinderSkill1.addEventListener('change', renderModFinderResults);
