@@ -6,7 +6,7 @@ A small browser toolkit for **Project Gorgon**. Load your items export and chara
 
 - **Favor Finder** — See which stored items you can give to an NPC for favor (Love vs Like), grouped by city and vault, with current favor if you load a character sheet.
 - **Storage Saver** — Find items split across multiple vaults so you can consolidate stacks in-game and free storage slots. Shows only items where you can actually save slots; each line shows map and vault (e.g. *Serbule: Council Vault — 5*).
-- **Full Inventory** — *(Coming soon)* Browse all items by category (equipment, potions, gardening, etc.).
+- **Full Inventory** — Browse all items by category (equipment, Skill Book, Recipe, Work Order, consumables, potions, gardening, etc.). Filter by category; equipment shows treasure mods (from your export and CDN data) in a separate Mods column, with human-readable effects and inline icons where the game data uses `<icon=NNN>`.
 - **Mod Finder** — *(Coming soon)* Find mods by skill.
 
 See [FEATURES.md](FEATURES.md) for more detail on each feature and future plans.
@@ -27,7 +27,7 @@ See [FEATURES.md](FEATURES.md) for more detail on each feature and future plans.
 
 ## Where the game data comes from
 
-The app loads NPCs, items, storage vaults, and areas from the Project Gorgon CDN:
+The app loads NPCs, items, storage vaults, areas, attributes, and treasure-system data (e.g. for equipment mod text) from the Project Gorgon CDN:
 
 - `https://cdn.projectgorgon.com/v457/data/`
 
