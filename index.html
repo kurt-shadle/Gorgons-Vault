@@ -7,12 +7,13 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
   <header>
-    <h1>Gorgons's Vault</h1>
+    <h1>Gorgon's Vault</h1>
     <p class="subtitle">Favor finder, storage saver, and more. Load your data once, use every feature.</p>
   </header>
 
-  <main>
+  <main id="main-content">
     <section class="data-load">
       <h2>Your data</h2>
       <div class="file-inputs">
@@ -37,7 +38,7 @@
       <button type="button" class="tab" role="tab" id="tabWhatsThisFor" aria-selected="false" aria-controls="panelWhatsThisFor" data-panel="panelWhatsThisFor">What's this for?</button>
     </nav>
 
-    <div id="panelFavor" class="feature-panel" role="tabpanel" aria-labelledby="tabFavor">
+    <div id="panelFavor" class="feature-panel" role="tabpanel" aria-labelledby="tabFavor" aria-hidden="false">
       <section class="selectors">
         <h2>Select NPC</h2>
         <div class="dropdowns">
@@ -64,18 +65,18 @@
       </section>
     </div>
 
-    <div id="panelStorage" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabStorage">
+    <div id="panelStorage" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabStorage" aria-hidden="true">
       <section class="storage-saver">
         <h2>Storage Saver</h2>
         <p class="panel-desc">Find items split across multiple vaults so you can consolidate stacks and save slots.</p>
         <p class="storage-saver-tip">Consolidate by destination—when you're at a map, move all listed stacks for that item into one vault there so you only visit each map once.</p>
-        <p class="storage-saver-trip-note">Want to plan a multi-stop route? <button type="button" class="trip-plan-tab-link" id="goToTripPlanTab">Go to Trip plan</button> to pick your stops and see what to take from one place and put in another.</p>
+        <p class="storage-saver-trip-note">Want to plan a multi-stop route? <button type="button" class="trip-plan-tab-link" id="goToTripPlanTab" aria-label="Go to Trip plan tab">Go to Trip plan</button> to pick your stops and see what to take from one place and put in another.</p>
         <div id="storageSaverStatus" class="status" aria-live="polite"></div>
         <div id="storageSaverResults" class="storage-saver-results" hidden></div>
       </section>
     </div>
 
-    <div id="panelTripPlan" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabTripPlan">
+    <div id="panelTripPlan" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabTripPlan" aria-hidden="true">
       <section class="trip-planner-panel">
         <h2>Trip plan</h2>
         <p class="trip-planner-desc">Pick the order of maps you'll visit (at least two). At each stop you'll see what to pick up (to drop at later stops) and what to drop here to consolidate.</p>
@@ -101,7 +102,7 @@
       </section>
     </div>
 
-    <div id="panelInventory" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabInventory">
+    <div id="panelInventory" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabInventory" aria-hidden="true">
       <section class="full-inventory-panel">
         <h2>Full Inventory</h2>
         <p class="panel-desc">Everything you have, grouped by category. Equipment shows mod info from your export; effect text from game data when available.</p>
@@ -128,13 +129,14 @@
             <span>Search</span>
             <input type="search" id="fullInventorySearch" placeholder="Search items…" aria-label="Search items by name or description" />
           </label>
+          <button type="button" id="fullInventoryClearFilters" class="secondary-btn" aria-label="Clear all filters">Clear filters</button>
         </div>
         <p id="fullInventoryEmpty" class="status" aria-live="polite" hidden>Load an items export above first.</p>
         <div id="fullInventoryResults" class="full-inventory-results"></div>
       </section>
     </div>
 
-    <div id="panelMods" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabMods">
+    <div id="panelMods" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabMods" aria-hidden="true">
       <section class="mod-finder-panel">
         <h2>Mod Finder</h2>
         <p class="panel-desc">Pick one or two combat skills to see all mods for those skills, grouped by equipment slot. Use the slot filter to show only certain slots.</p>
@@ -168,13 +170,14 @@
             <legend>Slots</legend>
             <div class="mod-finder-slot-checkboxes" id="modFinderSlotCheckboxes"></div>
           </fieldset>
+          <button type="button" id="modFinderClearFilters" class="secondary-btn" aria-label="Clear all filters">Clear filters</button>
         </div>
         <p id="modFinderEmpty" class="status" aria-live="polite" hidden>Select one or two combat skills to see mods.</p>
         <div id="modFinderResults" class="mod-finder-results" hidden></div>
       </section>
     </div>
 
-    <div id="panelWhatsThisFor" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabWhatsThisFor">
+    <div id="panelWhatsThisFor" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabWhatsThisFor" aria-hidden="true">
       <section class="whats-this-for-panel">
         <h2>What's this for?</h2>
         <p class="panel-desc">Look up an item to see which recipes use it. Click item names in other features for a quick lookup.</p>
@@ -182,6 +185,7 @@
           <span>Search item</span>
           <input type="search" id="whatsThisForSearch" placeholder="Search item by name…" aria-label="Search item by name" />
         </label>
+        <button type="button" id="whatsThisForClearFilters" class="secondary-btn" aria-label="Clear search">Clear filters</button>
         <div id="whatsThisForResults" class="whats-this-for-results" aria-live="polite"></div>
       </section>
     </div>
@@ -193,19 +197,19 @@
         <div id="itemUsedForModalBody" class="item-used-for-modal-body"></div>
         <div class="item-used-for-modal-actions">
           <button type="button" id="itemUsedForModalClose" class="primary-btn">Close</button>
-          <a href="#" id="itemUsedForModalOpenTab" class="item-used-for-open-tab-link" hidden>Open in What's this for? tab</a>
+          <button type="button" id="itemUsedForModalOpenTab" class="item-used-for-open-tab-link" hidden>Open in What's this for? tab</button>
         </div>
       </div>
     </div>
 
     <section id="cdnError" class="cdn-error" hidden>
       <h2>CDN data could not be loaded</h2>
-      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, <code>abilities.json</code>, and <code>recipes.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener">CDN data</a> into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
+      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, <code>abilities.json</code>, and <code>recipes.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener noreferrer" aria-label="CDN data (opens in new window)">CDN data</a> into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
     </section>
   </main>
 
   <footer>
-    <p>Some portions copyright <span id="copyrightYear"></span> Elder Game, LLC.</p>
+    <p>Gorgon's Vault v1.0 · Some portions copyright <span id="copyrightYear"></span> Elder Game, LLC.</p>
   </footer>
 
   <button type="button" id="backToTop" class="back-to-top" aria-label="Back to top" hidden>Back to top</button>

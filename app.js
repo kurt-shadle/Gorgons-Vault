@@ -1,7 +1,7 @@
 /**
  * Gorgon's Vault — main app logic.
- * Loads CDN/local game data, handles Favor Finder, Storage Saver, Full Inventory,
- * Mod Finder, and What's this for? (item crafting lookup).
+ * Loads CDN/local game data. Features: Favor Finder, Storage Saver, Trip plan,
+ * Full Inventory, Mod Finder, What's this for? (item crafting lookup).
  */
 (function () {
   'use strict';
@@ -52,14 +52,17 @@
   const fullInventoryMap = $('fullInventoryMap');
   const fullInventoryVault = $('fullInventoryVault');
   const fullInventorySearch = $('fullInventorySearch');
+  const fullInventoryClearFilters = $('fullInventoryClearFilters');
   const backToTopBtn = $('backToTop');
   const modFinderSkill1 = $('modFinderSkill1');
   const modFinderSkill2 = $('modFinderSkill2');
   const modFinderRarity = $('modFinderRarity');
   const modFinderSlotCheckboxes = $('modFinderSlotCheckboxes');
+  const modFinderClearFilters = $('modFinderClearFilters');
   const modFinderEmpty = $('modFinderEmpty');
   const modFinderResults = $('modFinderResults');
   const whatsThisForSearch = $('whatsThisForSearch');
+  const whatsThisForClearFilters = $('whatsThisForClearFilters');
   const whatsThisForResults = $('whatsThisForResults');
   const itemUsedForModal = $('itemUsedForModal');
   const itemUsedForModalBody = $('itemUsedForModalBody');
@@ -69,10 +72,11 @@
   const PANEL_ID = 'data-panel';
   let whatsThisForDebounceTimer = null;
   let itemUsedForModalLastItem = null;
+  let modalFocusRestore = null;
 
   const MOD_SLOT_ORDER = ['Head', 'Chest', 'Hands', 'MainHand', 'OffHand', 'Legs', 'Feet'];
 
-  // Full Inventory: keyword → category; icon 5792 = Skill Book, 4003 + name/desc = Recipe or Work Order
+  /** Full Inventory: category order; icon 5792 = Skill Book, 4003 + name/desc = Recipe or Work Order. */
   const FULL_INVENTORY_CATEGORY_ORDER = [
     'Equipment', 'Skill Book', 'Recipe', 'Work Order', 'Consumables', 'Potions', 'Gardening', 'Ingredients',
     'Cooking', 'Ability ingredients', 'Nature', 'Brewing', 'Gems', 'Trophies', 'Artwork', 'Valuables', 'Vendor trash',
@@ -392,6 +396,7 @@
   /** Show modal with "What's this used for?" for the given item (name + optional typeId). */
   function openItemUsedForModal(itemName, typeId) {
     itemUsedForModalLastItem = { itemName, typeId };
+    modalFocusRestore = document.activeElement;
     if (itemUsedForModalBody) {
       itemUsedForModalBody.innerHTML = '';
       itemUsedForModalBody.appendChild(renderItemUsedForHTML(itemName, typeId));
@@ -416,13 +421,17 @@
     document.body.classList.add('modal-open');
   }
 
-  /** Hide the item-used-for modal and re-enable body scroll. */
+  /** Hide the item-used-for modal, re-enable body scroll, and restore focus to trigger. */
   function closeItemUsedForModal() {
     if (itemUsedForModal) {
       itemUsedForModal.hidden = true;
       itemUsedForModal.setAttribute('aria-hidden', 'true');
     }
     document.body.classList.remove('modal-open');
+    if (modalFocusRestore && typeof modalFocusRestore.focus === 'function') {
+      modalFocusRestore.focus();
+      modalFocusRestore = null;
+    }
   }
 
   /** Render "What's this for?" tab: hint, no matches, multiple-match picker, or recipe list. */
@@ -884,6 +893,7 @@
     });
     document.querySelectorAll('.feature-panel').forEach((p) => {
       p.classList.add('hidden');
+      p.setAttribute('aria-hidden', 'true');
     });
     const tab = document.querySelector('.feature-tabs .tab[data-panel="' + panelId + '"]');
     const panel = $(panelId);
@@ -893,6 +903,7 @@
     }
     if (panel) {
       panel.classList.remove('hidden');
+      panel.setAttribute('aria-hidden', 'false');
     }
     if (panelId === 'panelFavor') {
       runMatch();
@@ -1982,8 +1993,39 @@
     init();
   }
 
-  /** Wire tab clicks to switchTab; wire dropdowns/search/modal/back-to-top. */
+  /** Wire tab clicks to switchTab; wire arrow-key navigation and dropdowns/search/modal/back-to-top. */
   function initTabs() {
+    const tabList = document.querySelector('.feature-tabs');
+    if (tabList) {
+      tabList.addEventListener('keydown', (e) => {
+        const tab = e.target.closest('.tab');
+        if (!tab || e.ctrlKey || e.altKey || e.metaKey) return;
+        const tabs = Array.from(tabList.querySelectorAll('.tab'));
+        const idx = tabs.indexOf(tab);
+        if (idx === -1) return;
+        let next = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          next = tabs[idx + 1] || tabs[0];
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          next = tabs[idx - 1] || tabs[tabs.length - 1];
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          next = tabs[0];
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          next = tabs[tabs.length - 1];
+        }
+        if (next) {
+          const panelId = next.getAttribute(PANEL_ID);
+          if (panelId) {
+            switchTab(panelId);
+            next.focus();
+          }
+        }
+      });
+    }
     document.querySelectorAll('.feature-tabs .tab').forEach((t) => {
       t.addEventListener('click', () => {
         const panelId = t.getAttribute(PANEL_ID);
@@ -2002,6 +2044,15 @@
     if (fullInventorySearch) {
       fullInventorySearch.addEventListener('input', renderFullInventory);
     }
+    if (fullInventoryClearFilters) {
+      fullInventoryClearFilters.addEventListener('click', () => {
+        if (fullInventoryCategory) fullInventoryCategory.value = '';
+        if (fullInventoryMap) fullInventoryMap.value = '';
+        if (fullInventoryVault) fullInventoryVault.value = '';
+        if (fullInventorySearch) fullInventorySearch.value = '';
+        renderFullInventory();
+      });
+    }
     if (modFinderSkill1) {
       modFinderSkill1.addEventListener('change', renderModFinderResults);
     }
@@ -2016,12 +2067,29 @@
         if (e.target && e.target.matches('input[type="checkbox"]')) renderModFinderResults();
       });
     }
+    if (modFinderClearFilters) {
+      modFinderClearFilters.addEventListener('click', () => {
+        if (modFinderSkill1) modFinderSkill1.value = '';
+        if (modFinderSkill2) modFinderSkill2.value = '';
+        if (modFinderRarity) modFinderRarity.value = '';
+        if (modFinderSlotCheckboxes) {
+          modFinderSlotCheckboxes.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
+        }
+        renderModFinderResults();
+      });
+    }
     if (whatsThisForSearch) {
       whatsThisForSearch.addEventListener('input', () => {
         clearTimeout(whatsThisForDebounceTimer);
         whatsThisForDebounceTimer = setTimeout(() => {
           renderWhatsThisForResults(whatsThisForSearch.value, null);
         }, 200);
+      });
+    }
+    if (whatsThisForClearFilters) {
+      whatsThisForClearFilters.addEventListener('click', () => {
+        if (whatsThisForSearch) whatsThisForSearch.value = '';
+        renderWhatsThisForResults('', null);
       });
     }
     if (itemUsedForModalClose) {
@@ -2031,7 +2099,23 @@
       const backdrop = itemUsedForModal.querySelector('.item-used-for-modal-backdrop');
       if (backdrop) backdrop.addEventListener('click', closeItemUsedForModal);
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && itemUsedForModal && !itemUsedForModal.hidden) closeItemUsedForModal();
+        if (!itemUsedForModal || itemUsedForModal.hidden) return;
+        if (e.key === 'Escape') {
+          closeItemUsedForModal();
+          return;
+        }
+        if (e.key === 'Tab') {
+          const focusable = itemUsedForModal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            if (last) last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            if (first) first.focus();
+          }
+        }
       });
     }
     if (tripPlannerStops) {
@@ -2074,9 +2158,9 @@
       backToTopBtn.addEventListener('click', () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
-      const scrollThreshold = 200;
+      const SCROLL_THRESHOLD_PX = 200;
       function toggleBackToTop() {
-        backToTopBtn.hidden = window.scrollY < scrollThreshold;
+        backToTopBtn.hidden = window.scrollY < SCROLL_THRESHOLD_PX;
       }
       window.addEventListener('scroll', toggleBackToTop, { passive: true });
       toggleBackToTop();
