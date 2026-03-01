@@ -9,7 +9,30 @@ and this project uses semantic versioning from 1.0.0 onward.
 
 ## [Unreleased]
 
-- (Reserved for post-1.0 changes; GA4 tracking planned as follow-up.)
+- (Reserved for future changes; GA4 tracking planned as follow-up.)
+
+---
+
+## [1.1.0] — 2026-02-18
+
+### Added
+
+- **Header** — “Bug / Feedback” link (top-right) for reporting issues; replace `href` in `index.html` with your Google Form URL.
+- **Footer** — “Source on GitHub” link to the repo (`https://github.com/kurt-shadle/Project-Gorgon`), opens in new tab with `rel="noopener noreferrer"`.
+- **.gitignore** — `data/` folder (local CDN copies for debugging).
+
+### Fixed
+
+- **Favor Finder** — Corrected matching so NPC preferences no longer over-match or under-match.
+  - **Broad keyword “Loot”:** Require at least one *discriminating* (non-Loot) preference keyword to match; e.g. “Enchanted Elvish Jewelry” and “Gently-Used Shields” no longer match every item that has Loot.
+  - **Shield slot:** CDN uses `OffHandShield`; treat it as slot `OffHand` so shields get the correct primary type and show for NPCs who like Shields (e.g. Tyler Green).
+  - **Plurals and Dirk:** Preference plurals (Shields, Swords, Dirks) normalize to singular for matching; Dirk added to MainHand equipment types so “Dirks” preferences only match dirks.
+  - **Shield type variant:** `OffHandShield` counts as Shield for NPC preference matching.
+
+### Changed
+
+- Footer typo: “Alll” → “All”.
+- Header layout: position relative; feedback link absolutely positioned top-right.
 
 ---
 

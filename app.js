@@ -96,6 +96,21 @@
 
   const MOD_SLOT_ORDER = ['Head', 'Chest', 'Hands', 'MainHand', 'OffHand', 'Legs', 'Feet'];
 
+  /** Favor Finder: equipment-type keywords per slot; first match in item keywords = primary type. */
+  const EQUIPMENT_TYPE_BY_SLOT = {
+    MainHand: ['Sword', 'Staff', 'Hammer', 'Bow', 'Crossbow', 'Dagger', 'Dirk', 'Club', 'Unarmed'],
+    OffHand: ['Shield', 'OffHandShield']
+  };
+  const FAVOR_EQUIPMENT_TYPE_KEYWORDS = new Set(
+    Object.values(EQUIPMENT_TYPE_BY_SLOT).flat()
+  );
+  /** CDN sometimes uses OffHandShield; treat as Shield for NPC preference matching. Add similar sets for other slots if we find variants. */
+  const SHIELD_PREFERENCE_TYPES = new Set(['Shield', 'OffHandShield']);
+  /** NPC preference plurals (e.g. "Shields", "Dirks") → singular form used in CDN item keywords and equipment-type checks. */
+  const PREFERENCE_PLURAL_TO_SINGULAR = { Shields: 'Shield', Swords: 'Sword', Dirks: 'Dirk' };
+  /** Preference keywords that appear on most items; require at least one non-broad pref keyword to match so "Enchanted Elvish Jewelry" doesn't match every piece of gear. */
+  const BROAD_PREFERENCE_KEYWORDS = new Set(['Loot']);
+
   /** Full Inventory: category order; icon 5792 = Skill Book, 4003 + name/desc = Recipe or Work Order. */
   const FULL_INVENTORY_CATEGORY_ORDER = [
     'Equipment', 'Skill Book', 'Recipe', 'Work Order', 'Consumables', 'Potions', 'Gardening', 'Ingredients',
@@ -149,10 +164,13 @@
     return eq >= 0 ? kw.slice(0, eq) : kw;
   }
 
-  /** True if any NPC preference keyword base matches an item keyword base. */
+  /** True if at least one discriminating (non-broad) NPC preference keyword matches the item; plural→singular applied. If pref has only broad keywords, any match counts. */
   function hasKeywordMatch(itemKeywords, preferenceKeywords) {
     const bases = new Set((itemKeywords || []).map(itemKeywordBase));
-    return (preferenceKeywords || []).some((pk) => bases.has(pk));
+    const prefBases = (preferenceKeywords || []).map((pk) => (typeof pk === 'string' ? itemKeywordBase(pk) : ''));
+    const discriminating = prefBases.filter((b) => !BROAD_PREFERENCE_KEYWORDS.has(b));
+    const toMatch = discriminating.length > 0 ? discriminating : prefBases;
+    return toMatch.some((base) => bases.has(base) || (PREFERENCE_PLURAL_TO_SINGULAR[base] && bases.has(PREFERENCE_PLURAL_TO_SINGULAR[base])));
   }
 
   async function fetchJson(url) {
@@ -715,6 +733,19 @@
       let bestPrefName = null;
       for (const pref of loveLike) {
         if (!hasKeywordMatch(cdnItem.Keywords, pref.Keywords)) continue;
+        // If preference is for an equipment type (e.g. Sword, Shield), require item's primary type to match.
+        const prefBases = (pref.Keywords || []).map(itemKeywordBase);
+        const prefEquipmentTypes = prefBases
+          .map((b) => PREFERENCE_PLURAL_TO_SINGULAR[b] || b)
+          .filter((b) => FAVOR_EQUIPMENT_TYPE_KEYWORDS.has(b));
+        if (prefEquipmentTypes.length > 0) {
+          const slot = getEquipmentSlotFromKeywords(cdnItem.Keywords);
+          const primaryType = getPrimaryEquipmentType(cdnItem.Keywords, slot);
+          const prefWantsShield = prefEquipmentTypes.some((t) => SHIELD_PREFERENCE_TYPES.has(t));
+          const typeMatches = prefEquipmentTypes.includes(primaryType)
+            || (prefWantsShield && primaryType && SHIELD_PREFERENCE_TYPES.has(primaryType));
+          if (!primaryType || !typeMatches) continue;
+        }
         if (pref.Desire === 'Love') {
           bestDesire = 'Love';
           bestPrefName = pref.Name;
@@ -1047,14 +1078,28 @@
     return names.length ? charactersItems[names[0]] : null;
   }
 
-  /** Equipment slot from item keywords (Head, Chest, … OffHand, etc.); first match in MOD_SLOT_ORDER, else Other. */
+  /** Equipment slot from item keywords (Head, Chest, … OffHand, etc.); first match in MOD_SLOT_ORDER, else Other. CDN uses OffHandShield for shields so treat that as OffHand. */
   function getEquipmentSlotFromKeywords(keywords) {
     if (!Array.isArray(keywords)) return MOD_SLOT_FILTER_OTHER;
     const bases = keywords.map(itemKeywordBase);
     for (const slot of MOD_SLOT_ORDER) {
       if (bases.includes(slot)) return slot;
     }
+    if (bases.includes('OffHandShield')) return 'OffHand';
     return MOD_SLOT_FILTER_OTHER;
+  }
+
+  /** Favor Finder: primary equipment type for an item in the given slot (first type keyword in item order). */
+  function getPrimaryEquipmentType(keywords, slot) {
+    if (!Array.isArray(keywords) || !slot) return null;
+    const types = EQUIPMENT_TYPE_BY_SLOT[slot];
+    if (!types) return null;
+    const typeSet = new Set(types);
+    for (const kw of keywords) {
+      const base = itemKeywordBase(kw);
+      if (typeSet.has(base)) return base;
+    }
+    return null;
   }
 
   /** Map item keywords to a single category (priority order). */

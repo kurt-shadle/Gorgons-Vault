@@ -1,6 +1,6 @@
 # Project Gorgon Tools
 
-A small browser toolkit for **Project Gorgon** (v1.0). Load your items export and character sheet once, then use multiple features without re-uploading. All processing runs in your browser; your files never leave your machine.
+A small browser toolkit for **Project Gorgon** (v1.1). Load your items export and character sheet once, then use multiple features without re-uploading. All processing runs in your browser; your files never leave your machine.
 
 ## Features
 

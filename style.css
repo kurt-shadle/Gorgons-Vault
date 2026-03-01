@@ -62,7 +62,8 @@ body {
   min-height: 100vh;
 }
 
-header {
+header.site-header {
+  position: relative;
   margin-bottom: 1.5rem;
 }
 
@@ -70,6 +71,19 @@ header h1 {
   margin: 0 0 0.25rem 0;
   font-size: 1.75rem;
   font-weight: 700;
+}
+
+.header-feedback-link {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.header-feedback-link:hover {
+  text-decoration: underline;
 }
 
 .subtitle {
@@ -404,6 +418,15 @@ footer {
 
 footer p {
   margin: 0;
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
 }
 
 /* Feature tabs — 44px+ touch targets, mobile-friendly */

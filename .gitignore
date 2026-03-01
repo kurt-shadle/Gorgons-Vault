@@ -5,6 +5,9 @@ Character_*.json
 !Character_Kanbe.json
 !Kanbe_items_2026-02-17-16-53-40Z.json
 
+# Local CDN copies (for debugging; do not commit)
+data/
+
 # Plan / Cursor artifacts (do not commit)
 .cursor/
 *.plan.md
