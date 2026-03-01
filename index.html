@@ -32,7 +32,7 @@
           <input type="file" id="itemsFiles" accept=".json" />
         </label>
         <label>
-          <span>Character sheet (optional, for current favor)</span>
+          <span>Character sheet (optional; for current favor and Quest Turn-ins)</span>
           <input type="file" id="characterFiles" accept=".json" />
         </label>
       </div>
@@ -52,6 +52,7 @@
       <button type="button" class="tab" role="tab" id="tabInventory" aria-selected="false" aria-controls="panelInventory" data-panel="panelInventory">Full Inventory</button>
       <button type="button" class="tab" role="tab" id="tabMods" aria-selected="false" aria-controls="panelMods" data-panel="panelMods">Mod Finder</button>
       <button type="button" class="tab" role="tab" id="tabWhatsThisFor" aria-selected="false" aria-controls="panelWhatsThisFor" data-panel="panelWhatsThisFor">What's this for?</button>
+      <button type="button" class="tab" role="tab" id="tabQuestTurnins" aria-selected="false" aria-controls="panelQuestTurnins" data-panel="panelQuestTurnins">Quest Turn-ins</button>
     </nav>
 
     <div id="panelIntro" class="feature-panel intro-panel" role="tabpanel" aria-labelledby="tabIntro" aria-hidden="false">
@@ -68,6 +69,7 @@
           <li><strong>Full Inventory</strong> — Browse everything by category; filter by map or vault; search by name, effects, or mods.</li>
           <li><strong>Mod Finder</strong> — Pick combat skills and see all mods for those skills by equipment slot.</li>
           <li><strong>What's this for?</strong> — Search an item to see which recipes use it; or click item names in other tabs for a quick lookup.</li>
+          <li><strong>Quest Turn-ins</strong> — See your active quests and which stored items you already have that can be turned in.</li>
         </ul>
       </section>
     </div>
@@ -242,6 +244,27 @@
       </section>
     </div>
 
+    <div id="panelQuestTurnins" class="feature-panel hidden" role="tabpanel" aria-labelledby="tabQuestTurnins" aria-hidden="true">
+      <section class="quest-turnins-panel">
+        <h2>Quest Turn-ins</h2>
+        <p class="panel-desc">Shows your active quests and which items in your storage you can turn in. Load both an items export and a character sheet.</p>
+        <div class="quest-turnins-controls">
+          <label class="quest-turnins-filter-row">
+            <input type="checkbox" id="questTurninsReadyOnly" checked aria-describedby="questTurninsReadyOnlyDesc" />
+            <span id="questTurninsReadyOnlyDesc">Show only ready to turn in</span>
+          </label>
+          <label>
+            <span>Map</span>
+            <select id="questTurninsMap" aria-label="Filter by quest location">
+              <option value="">All maps</option>
+            </select>
+          </label>
+        </div>
+        <p id="questTurninsStatus" class="status" aria-live="polite"></p>
+        <div id="questTurninsResults" class="quest-turnins-results" hidden></div>
+      </section>
+    </div>
+
     <div id="itemUsedForModal" class="item-used-for-modal" role="dialog" aria-labelledby="itemUsedForModalTitle" aria-modal="true" hidden>
       <div class="item-used-for-modal-backdrop"></div>
       <div class="item-used-for-modal-content">
@@ -256,12 +279,12 @@
 
     <section id="cdnError" class="cdn-error" hidden>
       <h2>CDN data could not be loaded</h2>
-      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, <code>abilities.json</code>, and <code>recipes.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener noreferrer" aria-label="CDN data (opens in new window)">CDN data</a> (current version in app footer) into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
+      <p>If you see this, cross-origin requests may be blocked. Save <code>npcs.json</code>, <code>items.json</code>, <code>storagevaults.json</code>, <code>areas.json</code>, <code>attributes.json</code>, <code>skills.json</code>, <code>abilities.json</code>, <code>recipes.json</code>, and <code>quests.json</code> from the <a href="https://cdn.projectgorgon.com/v457/data/" target="_blank" rel="noopener noreferrer" aria-label="CDN data (opens in new window)">CDN data</a> (current version in app footer) into a <code>data/</code> folder next to this file, then serve the folder with a local server (e.g. <code>npx serve</code> or <code>python -m http.server</code>).</p>
     </section>
   </main>
 
   <footer>
-    <p>Gorgon's Vault v1.1 · <span id="cdnVersion" aria-label="Game data version"></span> · <a href="https://github.com/kurt-shadle/Project-Gorgon" target="_blank" rel="noopener noreferrer">Source on GitHub</a> · All game data copyright <span id="copyrightYear"></span> Elder Game, LLC.</p>
+    <p>Gorgon's Vault v1.2 · <span id="cdnVersion" aria-label="Game data version"></span> · <a href="https://github.com/kurt-shadle/Project-Gorgon" target="_blank" rel="noopener noreferrer">Source on GitHub</a> · All game data copyright <span id="copyrightYear"></span> Elder Game, LLC.</p>
   </footer>
 
   <button type="button" id="backToTop" class="back-to-top" aria-label="Back to top" hidden>Back to top</button>

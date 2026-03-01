@@ -44,6 +44,12 @@
   let charactersSheets = {};
   let giftableNpcs = [];
   let maps = [];
+  /** Lazy-loaded: quest InternalName -> quest object (from CDN quests.json). */
+  let questsByInternalName = null;
+  /** Lazy-built when Quest Turn-ins tab is first run: item InternalName -> typeId. */
+  let itemInternalNameToTypeId = null;
+  /** Last computed quest turn-ins fragments (for re-filter without recompute). */
+  let questTurninsFragments = [];
 
   // ——— DOM refs and constants ———
   const $ = (id) => document.getElementById(id);
@@ -84,6 +90,10 @@
   const whatsThisForSearch = $('whatsThisForSearch');
   const whatsThisForClearFilters = $('whatsThisForClearFilters');
   const whatsThisForResults = $('whatsThisForResults');
+  const questTurninsStatus = $('questTurninsStatus');
+  const questTurninsResults = $('questTurninsResults');
+  const questTurninsReadyOnly = $('questTurninsReadyOnly');
+  const questTurninsMap = $('questTurninsMap');
   const itemUsedForModal = $('itemUsedForModal');
   const itemUsedForModalBody = $('itemUsedForModalBody');
   const itemUsedForModalClose = $('itemUsedForModalClose');
@@ -311,6 +321,44 @@
     }
     buildItemTypeIdToRecipesIndex();
     buildGiftableNpcsAndMaps();
+  }
+
+  /** Lazy-load quests.json when Quest Turn-ins tab is first used; build questsByInternalName. */
+  async function loadQuestsIfNeeded() {
+    if (questsByInternalName) return;
+    if (!cdnVersion) {
+      cdnVersion = await getCdnVersion();
+      CDN_BASE = 'https://cdn.projectgorgon.com/v' + cdnVersion + '/data';
+      CDN_ICONS_BASE = 'https://cdn.projectgorgon.com/v' + cdnVersion + '/icons';
+    }
+    let raw;
+    try {
+      raw = await fetchCdnCached(cdnVersion, 'quests.json');
+    } catch (e) {
+      try {
+        raw = await fetchJson(DATA_BASE + '/quests.json');
+      } catch (e2) {
+        if (questTurninsStatus) questTurninsStatus.textContent = 'Could not load quest data.';
+        throw new Error('Could not load quests.json');
+      }
+    }
+    questsByInternalName = {};
+    for (const q of Object.values(raw)) {
+      if (q && q.InternalName) questsByInternalName[q.InternalName] = q;
+    }
+  }
+
+  /** Build item InternalName -> typeId index (lazy, when Quest Turn-ins tab first runs). */
+  function buildItemInternalNameToTypeId() {
+    if (itemInternalNameToTypeId) return;
+    itemInternalNameToTypeId = {};
+    for (const key of Object.keys(items)) {
+      const m = /^item_(\d+)$/.exec(key);
+      if (!m) continue;
+      const typeId = parseInt(m[1], 10);
+      const entry = items[key];
+      if (entry && entry.InternalName) itemInternalNameToTypeId[entry.InternalName] = typeId;
+    }
   }
 
   /** Index: item typeId → list of recipes that use it (for "What's this for?"). */
@@ -684,6 +732,7 @@
     else if (id === 'panelInventory') renderFullInventory();
     else if (id === 'panelMods') renderModFinderResults();
     else if (id === 'panelWhatsThisFor') renderWhatsThisForResults(whatsThisForSearch ? whatsThisForSearch.value : '', null);
+    else if (id === 'panelQuestTurnins') runQuestTurnins();
   }
 
   /** Look up item by typeId from CDN items. */
@@ -1070,12 +1119,280 @@
     if (panelId === 'panelWhatsThisFor') {
       if (whatsThisForResults) renderWhatsThisForResults(whatsThisForSearch ? whatsThisForSearch.value : '', null);
     }
+    if (panelId === 'panelQuestTurnins') {
+      runQuestTurnins();
+    }
   }
 
   /** Items array for the first character in charactersItems (shared by Favor, Storage, Full Inventory). */
   function getFirstCharacterItems() {
     const names = Object.keys(charactersItems);
     return names.length ? charactersItems[names[0]] : null;
+  }
+
+  /** Escape for safe use in HTML text. */
+  function escapeHtml(s) {
+    if (s == null) return '';
+    const t = String(s);
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /** Quest Turn-ins: show active quests and which stored items can be turned in. Lazy-loads quests + item index. */
+  async function runQuestTurnins() {
+    if (!questTurninsStatus || !questTurninsResults) return;
+    questTurninsStatus.textContent = 'Loading…';
+    questTurninsResults.hidden = true;
+
+    try {
+      await loadQuestsIfNeeded();
+    } catch (e) {
+      questTurninsStatus.textContent = 'Could not load quest data.';
+      return;
+    }
+    buildItemInternalNameToTypeId();
+
+    const characterNames = Object.keys(charactersItems);
+    const characterName = characterNames.length ? characterNames[0] : null;
+    const userItems = characterName ? charactersItems[characterName] : null;
+    const sheet = characterName ? charactersSheets[characterName] : null;
+    const activeQuests = sheet && Array.isArray(sheet.ActiveQuests) ? sheet.ActiveQuests : [];
+
+    if (!userItems || !userItems.length) {
+      questTurninsStatus.textContent = 'Load an items export above first.';
+      questTurninsResults.hidden = true;
+      return;
+    }
+    if (!sheet) {
+      questTurninsStatus.textContent = 'Load the character sheet to see active quests.';
+      questTurninsResults.hidden = true;
+      return;
+    }
+    if (!activeQuests.length) {
+      questTurninsStatus.textContent = 'No active quests on your character sheet.';
+      questTurninsResults.hidden = true;
+      return;
+    }
+
+    const countByTypeId = {};
+    for (const row of userItems) {
+      const tid = row.TypeID;
+      const n = (row.StackSize != null && row.StackSize > 0) ? row.StackSize : 1;
+      countByTypeId[tid] = (countByTypeId[tid] || 0) + n;
+    }
+    const vaultsByTypeId = {};
+    for (const row of userItems) {
+      const tid = row.TypeID;
+      const v = row.StorageVault || 'Unknown';
+      if (!vaultsByTypeId[tid]) vaultsByTypeId[tid] = [];
+      if (!vaultsByTypeId[tid].includes(v)) vaultsByTypeId[tid].push(v);
+    }
+
+    const QUEST_NO_LOCATION = '';
+    const fragments = [];
+    const mapSet = new Set();
+    for (const questName of activeQuests) {
+      const quest = questsByInternalName[questName];
+      if (!quest) {
+        fragments.push({ questName, displayName: questName, noDef: true, objectives: [], ready: false, displayedLocation: QUEST_NO_LOCATION, favorNpcName: '', favorLevel: null, rewardFavor: null, rewardSkillXp: [], rewardItems: [] });
+        mapSet.add(QUEST_NO_LOCATION);
+        continue;
+      }
+      const displayName = quest.Name || quest.InternalName || questName;
+      const displayedLocation = (quest.DisplayedLocation && String(quest.DisplayedLocation).trim()) || QUEST_NO_LOCATION;
+      mapSet.add(displayedLocation);
+      const npc = quest.FavorNpc ? npcs[quest.FavorNpc] : null;
+      const favorNpcName = (npc && npc.Name) ? npc.Name : (quest.FavorNpc ? String(quest.FavorNpc) : '');
+      let favorLevel = null;
+      if (sheet && sheet.NPCs && quest.FavorNpc) {
+        const npcEntry = sheet.NPCs[quest.FavorNpc] || sheet.NPCs[quest.FavorNpc.split('/').pop()];
+        favorLevel = npcEntry ? (npcEntry.FavorLevel || null) : null;
+      }
+      const collectObjectives = (quest.Objectives || []).filter((o) => o && o.Type === 'Collect');
+      const lines = [];
+      let ready = true;
+      for (const obj of collectObjectives) {
+        const itemKey = obj.ItemName || obj.Target || '';
+        const need = (obj.Number != null && obj.Number > 0) ? obj.Number : 1;
+        const typeId = itemKey ? (itemInternalNameToTypeId[itemKey] != null ? itemInternalNameToTypeId[itemKey] : null) : null;
+        const have = typeId != null ? (countByTypeId[typeId] || 0) : null;
+        const cdnItem = typeId != null ? getCdnItem(typeId) : null;
+        const itemDisplayName = cdnItem ? (cdnItem.Name || cdnItem.InternalName || itemKey) : itemKey || 'Unknown';
+        const vaults = (typeId != null && vaultsByTypeId[typeId]) ? vaultsByTypeId[typeId] : [];
+        const iconId = cdnItem && (cdnItem.IconId != null || cdnItem.IconID != null) ? (cdnItem.IconId != null ? cdnItem.IconId : cdnItem.IconID) : null;
+        lines.push({ itemKey, need, have, itemDisplayName, vaults, typeId, iconId });
+        if (have == null || have < need) ready = false;
+      }
+      if (collectObjectives.length === 0) {
+        lines.push({ noCollect: true });
+        ready = false;
+      }
+      const rewardFavor = quest.Reward_Favor != null ? Number(quest.Reward_Favor) : null;
+      const rewardSkillXp = Array.isArray(quest.Rewards) ? quest.Rewards.filter((r) => r && r.T === 'SkillXp' && r.Skill && r.Xp != null) : [];
+      const rewardItems = [];
+      if (Array.isArray(quest.Rewards_Items)) {
+        for (const ri of quest.Rewards_Items) {
+          const itemKey = ri.Item;
+          const stackSize = (ri.StackSize != null && ri.StackSize > 0) ? ri.StackSize : 1;
+          const typeId = itemKey && itemInternalNameToTypeId[itemKey] != null ? itemInternalNameToTypeId[itemKey] : null;
+          const cdnItem = typeId != null ? getCdnItem(typeId) : null;
+          const name = cdnItem ? (cdnItem.Name || cdnItem.InternalName || itemKey) : itemKey || 'Unknown';
+          const iconId = cdnItem && (cdnItem.IconId != null || cdnItem.IconID != null) ? (cdnItem.IconId != null ? cdnItem.IconId : cdnItem.IconID) : null;
+          rewardItems.push({ typeId, name, iconId, stackSize });
+        }
+      }
+      fragments.push({ questName, displayName, noDef: false, objectives: lines, ready, displayedLocation, favorNpcName, favorLevel, rewardFavor, rewardSkillXp, rewardItems });
+    }
+
+    questTurninsFragments = fragments;
+    questTurninsStatus.textContent = '';
+
+    const mapOptions = Array.from(mapSet).filter(Boolean).sort();
+    if (mapSet.has(QUEST_NO_LOCATION)) mapOptions.push('No location');
+    const MAP_VALUE_NONE = '__none__';
+    if (questTurninsMap) {
+      const currentMap = questTurninsMap.value;
+      questTurninsMap.innerHTML = '<option value="">All maps</option>';
+      for (const loc of mapOptions) {
+        const opt = document.createElement('option');
+        opt.value = loc === 'No location' ? MAP_VALUE_NONE : loc;
+        opt.textContent = loc;
+        questTurninsMap.appendChild(opt);
+      }
+      if (currentMap === '' || currentMap === MAP_VALUE_NONE || mapOptions.some((l) => (l === 'No location' ? MAP_VALUE_NONE : l) === currentMap)) {
+        questTurninsMap.value = currentMap;
+      }
+    }
+
+    applyQuestTurninsFilters();
+    questTurninsResults.hidden = false;
+
+    if (!questTurninsReadyOnly || !questTurninsMap) return;
+    questTurninsReadyOnly.onchange = applyQuestTurninsFilters;
+    questTurninsMap.onchange = applyQuestTurninsFilters;
+  }
+
+  /** Apply ready/map filters to questTurninsFragments and re-render the list. */
+  function applyQuestTurninsFilters() {
+    if (!questTurninsResults) return;
+    const readyOnly = questTurninsReadyOnly && questTurninsReadyOnly.checked;
+    const mapVal = questTurninsMap && questTurninsMap.value !== undefined ? questTurninsMap.value : '';
+    const MAP_VALUE_NONE = '__none__';
+    let filtered = questTurninsFragments;
+    if (readyOnly) filtered = filtered.filter((b) => b.ready);
+    if (mapVal !== '' && mapVal !== MAP_VALUE_NONE) filtered = filtered.filter((b) => (b.displayedLocation || '') === mapVal);
+    else if (mapVal === MAP_VALUE_NONE) filtered = filtered.filter((b) => (b.displayedLocation || '') === '');
+    renderQuestTurninsList(filtered);
+  }
+
+  /** Render a list of quest turn-in fragments into questTurninsResults. Uses item icons, item-lookup-link buttons, NPC wiki links, vault wiki links. */
+  function renderQuestTurninsList(blocks) {
+    if (!questTurninsResults) return;
+    let html = '';
+    for (const block of blocks) {
+      html += '<div class="quest-turnins-quest">';
+      if (block.displayedLocation) {
+        html += '<p class="quest-turnins-map">' + escapeHtml(block.displayedLocation) + '</p>';
+      } else if (block.noDef === false && 'displayedLocation' in block) {
+        html += '<p class="quest-turnins-map quest-turnins-map-unknown">No location</p>';
+      }
+      html += '<h3 class="quest-turnins-quest-name">' + escapeHtml(block.displayName) + '</h3>';
+      if (block.favorNpcName) {
+        const npcUrl = npcWikiUrl(block.favorNpcName);
+        html += '<p class="quest-turnins-npc">Turn in to: ';
+        if (npcUrl) {
+          html += '<a href="' + escapeHtml(npcUrl) + '" target="_blank" rel="noopener noreferrer" class="npc-wiki-link">' + escapeHtml(block.favorNpcName) + '</a>';
+        } else {
+          html += escapeHtml(block.favorNpcName);
+        }
+        html += '</p>';
+        if (block.favorLevel != null && block.favorLevel !== '') {
+          html += '<p class="quest-turnins-favor">Current favor: ' + escapeHtml(String(block.favorLevel)) + '</p>';
+        } else {
+          html += '<p class="quest-turnins-favor quest-turnins-favor-unknown">Current favor: load character sheet to see</p>';
+        }
+      }
+      if (block.noDef) {
+        html += '<p class="quest-turnins-note">Quest definition not found in game data.</p>';
+      } else if (block.objectives.length === 1 && block.objectives[0].noCollect) {
+        html += '<p class="quest-turnins-note">No item turn-ins for this quest.</p>';
+      } else {
+        html += '<ul class="quest-turnins-list">';
+        for (const line of block.objectives) {
+          if (line.noCollect) continue;
+          const need = line.need;
+          const have = line.have;
+          const short = (have != null && have < need) ? (need - have) : 0;
+          const ready = have != null && have >= need;
+          const iconId = line.iconId;
+          const typeId = line.typeId;
+          html += '<li class="quest-turnins-item item-row">';
+          if (iconId != null && CDN_ICONS_BASE) {
+            html += '<img src="' + escapeHtml(CDN_ICONS_BASE + '/icon_' + iconId + '.png') + '" alt="" class="item-icon">';
+          }
+          html += '<span class="item-text">';
+          if (typeId != null) {
+            html += '<button type="button" class="item-lookup-link" data-type-id="' + escapeHtml(String(typeId)) + '">' + escapeHtml(line.itemDisplayName) + '</button>';
+          } else {
+            html += '<span class="quest-turnins-item-name">' + escapeHtml(line.itemDisplayName) + '</span>';
+          }
+          html += ' — Need ' + need + ' × ';
+          if (have !== null) {
+            html += 'You have ' + have;
+            if (ready) html += ' <strong>Ready to turn in</strong>';
+            else html += ' (short by ' + short + ')';
+          } else {
+            html += 'Item not in game data';
+          }
+          if (line.vaults && line.vaults.length) {
+            html += ' — In: ';
+            line.vaults.forEach((vaultName, idx) => {
+              const vaultUrl = npcWikiUrl(vaultName);
+              if (vaultUrl) {
+                html += (idx ? ', ' : '') + '<a href="' + escapeHtml(vaultUrl) + '" target="_blank" rel="noopener noreferrer" class="npc-wiki-link">' + escapeHtml(vaultName) + '</a>';
+              } else {
+                html += (idx ? ', ' : '') + escapeHtml(vaultName);
+              }
+            });
+          }
+          html += '</span></li>';
+        }
+        html += '</ul>';
+      }
+      if (!block.noDef && (block.rewardFavor != null || (block.rewardSkillXp && block.rewardSkillXp.length) || (block.rewardItems && block.rewardItems.length))) {
+        html += '<p class="quest-turnins-rewards-subhead">Rewards:</p>';
+        html += '<ul class="quest-turnins-rewards-list">';
+        if (block.rewardFavor != null) {
+          html += '<li class="quest-turnins-reward-item">Favor: +' + escapeHtml(String(block.rewardFavor)) + '</li>';
+        }
+        for (const r of block.rewardSkillXp || []) {
+          const skillName = (skills[r.Skill] && skills[r.Skill].Name) ? skills[r.Skill].Name : r.Skill;
+          html += '<li class="quest-turnins-reward-item">' + escapeHtml(skillName) + ': ' + escapeHtml(String(r.Xp)) + ' XP</li>';
+        }
+        for (const ri of block.rewardItems || []) {
+          html += '<li class="quest-turnins-reward-item item-row">';
+          if (ri.iconId != null && CDN_ICONS_BASE) {
+            html += '<img src="' + escapeHtml(CDN_ICONS_BASE + '/icon_' + ri.iconId + '.png') + '" alt="" class="item-icon">';
+          }
+          html += '<span class="item-text">';
+          if (ri.typeId != null) {
+            html += '<button type="button" class="item-lookup-link" data-type-id="' + escapeHtml(String(ri.typeId)) + '">' + escapeHtml(ri.name) + '</button>';
+          } else {
+            html += escapeHtml(ri.name);
+          }
+          html += (ri.stackSize > 1 ? ' × ' + ri.stackSize : '') + '</span></li>';
+        }
+        html += '</ul>';
+      }
+      html += '</div>';
+    }
+    questTurninsResults.innerHTML = html;
+    questTurninsResults.querySelectorAll('.item-lookup-link').forEach((btn) => {
+      btn.addEventListener('click', function () {
+        const typeId = Number(this.getAttribute('data-type-id'));
+        const cdn = getCdnItem(typeId);
+        openItemUsedForModal((cdn && cdn.Name) ? cdn.Name : ('Item ' + typeId), typeId);
+      });
+    });
   }
 
   /** Equipment slot from item keywords (Head, Chest, … OffHand, etc.); first match in MOD_SLOT_ORDER, else Other. CDN uses OffHandShield for shields so treat that as OffHand. */

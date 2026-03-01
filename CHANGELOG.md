@@ -13,6 +13,18 @@ and this project uses semantic versioning from 1.0.0 onward.
 
 ---
 
+## [1.2.0] — 2026-02-18
+
+### Added
+
+- **Quest Turn-ins** — New tab that shows active quests (from character sheet) and which stored items you can turn in. Uses CDN `quests.json` (lazy-loaded when the tab is first opened). Per quest: location/map, turn-in NPC (wiki link), current favor with that NPC, required items (icons and “What’s this for?” links), vault locations, and rewards (favor, skill XP, item rewards with icons). Filters: “Show only ready to turn in” (default on) and “Map” dropdown. Four-column card layout consistent with Storage Saver.
+
+### Fixed
+
+- **Quest Turn-ins favor** — Current favor with the quest-giver NPC now resolves correctly when the character sheet uses short NPC keys (e.g. `NPC_Joe`) and the quest data uses the full CDN key (e.g. `AreaSerbule/NPC_Joe`); both key formats are tried when looking up favor.
+
+---
+
 ## [1.1.0] — 2026-02-18
 
 ### Added
