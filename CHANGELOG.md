@@ -9,7 +9,14 @@ and this project uses semantic versioning from 1.0.0 onward.
 
 ## [Unreleased]
 
-- (Reserved for future changes; GA4 tracking planned as follow-up.)
+### Added
+
+- **Trip plan** — Remove individual stops (× button above each dropdown) instead of only clearing the whole route. Summary line at top: *"You could save X slot(s) total by consolidating the items below"* (X computed for the planned route only).
+- **Map options** — **On character** (items with `StorageVault: Unknown`) and **Saddlebag** added to map dropdowns across the app: Trip plan stops, Full Inventory map filter. Both supported by export data; vault labels use "On character" and "Saddlebag" where applicable.
+
+### Changed
+
+- **Trip plan** — Results grouped by stop, then by storage/NPC within each stop (e.g. "From Ragabir:", "From Mandibles:") so you can pick up everything from one NPC at a time. Remove button moved above each stop and made smaller (×).
 
 ---
 

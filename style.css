@@ -690,6 +690,13 @@ footer a:hover {
   margin-bottom: 0.75rem;
 }
 
+.trip-planner-stop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
 .trip-planner-stops label {
   display: flex;
   flex-direction: column;
@@ -699,6 +706,29 @@ footer a:hover {
 
 .trip-planner-stops select {
   min-width: 10rem;
+}
+
+.trip-planner-remove-stop {
+  flex-shrink: 0;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trip-planner-remove-stop:hover {
+  color: var(--text);
+  background: var(--bg);
 }
 
 .trip-planner-actions {
@@ -718,6 +748,15 @@ footer a:hover {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
+}
+
+.trip-planner-output .trip-planner-total {
+  grid-column: 1 / -1;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent, #0a7ea4);
+  padding: 0.75rem 0;
+  margin: 0;
 }
 
 .trip-planner-output .trip-planner-leg {
@@ -761,6 +800,25 @@ footer a:hover {
   font-weight: 700;
   font-size: 1.05rem;
   margin: 0.5rem 0 0.25rem 0;
+}
+
+.trip-planner-output .trip-planner-vault-group {
+  margin: 0.75rem 0 0 0;
+}
+
+.trip-planner-output .trip-planner-vault-group:first-of-type {
+  margin-top: 0.25rem;
+}
+
+.trip-planner-output .trip-planner-vault-heading {
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 0 0 0.25rem 0;
+  color: var(--text);
+}
+
+.trip-planner-output .trip-planner-vault-heading .npc-wiki-link {
+  font-weight: 600;
 }
 
 .trip-planner-output .trip-planner-list {

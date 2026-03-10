@@ -117,18 +117,24 @@
         <h2>Trip plan</h2>
         <p class="trip-planner-desc">Pick the order of maps you'll visit (at least two). At each stop you'll see what to pick up (to drop at later stops) and what to drop here to consolidate.</p>
         <div class="trip-planner-stops" id="tripPlannerStops" aria-label="Route stops">
-          <label>
-            <span>Stop 1</span>
-            <select id="tripStop1" aria-label="Stop 1 map">
-              <option value="">— Select map —</option>
-            </select>
-          </label>
-          <label>
-            <span>Stop 2</span>
-            <select id="tripStop2" aria-label="Stop 2 map">
-              <option value="">— Select map —</option>
-            </select>
-          </label>
+          <div class="trip-planner-stop">
+            <button type="button" class="trip-planner-remove-stop" aria-label="Remove stop 1" title="Remove this stop">×</button>
+            <label>
+              <span>Stop 1</span>
+              <select id="tripStop1" aria-label="Stop 1 map">
+                <option value="">— Select map —</option>
+              </select>
+            </label>
+          </div>
+          <div class="trip-planner-stop">
+            <button type="button" class="trip-planner-remove-stop" aria-label="Remove stop 2" title="Remove this stop">×</button>
+            <label>
+              <span>Stop 2</span>
+              <select id="tripStop2" aria-label="Stop 2 map">
+                <option value="">— Select map —</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div class="trip-planner-actions">
           <button type="button" id="tripPlannerAddStop" class="secondary-btn">Add stop</button>

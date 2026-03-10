@@ -827,13 +827,17 @@
   /** Display name for a storage vault (from storagevaults.json). */
   function vaultFriendlyName(vaultId) {
     if (!vaultId) return vaultId;
+    if (vaultId === 'Unknown') return 'On character';
+    if (vaultId === 'Saddlebag') return 'Saddlebag';
     const v = storageVaults[vaultId];
     return (v && v.NpcFriendlyName) ? v.NpcFriendlyName : vaultId;
   }
 
-  /** City/area label for a vault (e.g. "Serbule") for grouping. */
+  /** City/area label for a vault (e.g. "Serbule") for grouping. Unknown = on character. */
   function vaultCityHeading(vaultId) {
     if (!vaultId) return null;
+    if (vaultId === 'Unknown') return 'On character';
+    if (vaultId === 'Saddlebag') return 'Saddlebag';
     const v = storageVaults[vaultId];
     if (!v) return null;
     const areaKey = v.Grouping || v.Area;
@@ -1898,25 +1902,41 @@
     return out;
   }
 
-  /** Sorted list of map names (from storage vaults' city headings) for Full Inventory filter. */
+  /** Sorted list of map names (from storage vaults' city headings) for Full Inventory and Trip plan. Includes On character and Saddlebag. */
   function getFullInventoryMapOptions() {
     const set = new Set();
     for (const vaultId of Object.keys(storageVaults || {})) {
       const name = vaultCityHeading(vaultId);
       if (name && name !== 'Any city') set.add(name);
     }
+    set.add('On character');
+    set.add('Saddlebag');
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }
 
   /** Sorted list of { id, name } for storage vaults (Full Inventory filter). If mapFilter is set, only vaults in that map. */
   function getFullInventoryVaultOptions(mapFilter) {
+    if (mapFilter && mapFilter.trim()) {
+      if (mapFilter === 'On character') return [{ id: 'Unknown', name: 'On character' }];
+      if (mapFilter === 'Saddlebag') {
+        const fromCdn = Object.entries(storageVaults || {}).filter(([id]) => vaultCityHeading(id) === 'Saddlebag');
+        if (fromCdn.length) {
+          return fromCdn.map(([id, v]) => ({ id, name: (v && v.NpcFriendlyName) ? v.NpcFriendlyName : id })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }
+        return [{ id: 'Saddlebag', name: 'Saddlebag' }];
+      }
+    }
     let entries = Object.entries(storageVaults || {});
     if (mapFilter && mapFilter.trim()) {
       entries = entries.filter(([id]) => vaultCityHeading(id) === mapFilter);
     }
-    return entries
-      .map(([id, v]) => ({ id, name: (v && v.NpcFriendlyName) ? v.NpcFriendlyName : id }))
-      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const list = entries.map(([id, v]) => ({ id, name: (v && v.NpcFriendlyName) ? v.NpcFriendlyName : id }));
+    const extra = [];
+    if (!mapFilter || !mapFilter.trim()) {
+      if (!list.some((e) => e.id === 'Unknown')) extra.push({ id: 'Unknown', name: 'On character' });
+      if (!list.some((e) => e.id === 'Saddlebag')) extra.push({ id: 'Saddlebag', name: 'Saddlebag' });
+    }
+    return [...list, ...extra].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }
 
   /** Aggregate items by typeId+name (keep mod variance); assign category; return { category: [rows] }. */
@@ -2400,11 +2420,26 @@
     }
   }
 
+  /** Renumber stop labels and aria-labels after add/remove/clear. */
+  function renumberTripStops() {
+    if (!tripPlannerStops) return;
+    const stopDivs = tripPlannerStops.querySelectorAll('.trip-planner-stop');
+    stopDivs.forEach((div, idx) => {
+      const n = idx + 1;
+      const span = div.querySelector('label span');
+      const sel = div.querySelector('select');
+      const btn = div.querySelector('.trip-planner-remove-stop');
+      if (span) span.textContent = 'Stop ' + n;
+      if (sel) sel.setAttribute('aria-label', 'Stop ' + n + ' map');
+      if (btn) btn.setAttribute('aria-label', 'Remove stop ' + n);
+    });
+  }
+
   /** Fill all trip stop dropdowns with map options (only if not yet populated). */
   function populateTripStopOptions() {
     const mapOpts = getFullInventoryMapOptions();
     if (!mapOpts.length || !tripPlannerStops) return;
-    const selects = tripPlannerStops.querySelectorAll('select');
+    const selects = tripPlannerStops.querySelectorAll('.trip-planner-stop select');
     for (const sel of selects) {
       if (sel.options.length > 1) continue;
       sel.innerHTML = '<option value="">— Select map —</option>';
@@ -2423,7 +2458,7 @@
     const result = getStorageSaverDuplicates();
     const stops = [];
     if (tripPlannerStops) {
-      tripPlannerStops.querySelectorAll('select').forEach((sel) => {
+      tripPlannerStops.querySelectorAll('.trip-planner-stop select').forEach((sel) => {
         const v = (sel.value || '').trim();
         if (v) stops.push(v);
       });
@@ -2469,7 +2504,23 @@
       tripPlannerOutput.appendChild(p);
       return;
     }
+    const stopSet = new Set(stops);
+    let tripSlotsSaveable = 0;
+    for (const d of relevantItems) {
+      const vaultsInRoute = d.vaults.filter((v) => stopSet.has(vaultCityHeading(v.vault) || 'Other'));
+      if (vaultsInRoute.length < 2) continue;
+      const slotsUsed = vaultsInRoute.length;
+      let total = 0;
+      for (const v of vaultsInRoute) total += v.stack;
+      const maxStack = d.maxStack != null ? d.maxStack : 100;
+      const slotsNeeded = Math.ceil(total / maxStack);
+      tripSlotsSaveable += Math.max(0, slotsUsed - slotsNeeded);
+    }
     tripPlannerOutput.hidden = false;
+    const totalP = document.createElement('p');
+    totalP.className = 'trip-planner-total';
+    totalP.textContent = 'You could save ' + tripSlotsSaveable + ' slot(s) total by consolidating the items below.';
+    tripPlannerOutput.appendChild(totalP);
     const laterStopsForItem = (d, fromIndex) => {
       const maps = itemMaps(d);
       const list = [];
@@ -2504,65 +2555,134 @@
         pickP.className = 'trip-planner-subhead';
         pickP.textContent = 'Pick up (to drop at later stops):';
         legDiv.appendChild(pickP);
-        const ul = document.createElement('ul');
-        ul.className = 'trip-planner-list';
+        const pickEntries = [];
         for (const d of pickUpItems) {
           const vaultsHere = d.vaults.filter((v) => (vaultCityHeading(v.vault) || 'Other') === mapName);
-          const parts = vaultsHere.map((v) => vaultFriendlyName(v.vault) + ' — ' + v.stack);
           const later = laterStopsForItem(d, i);
-          const li = document.createElement('li');
-          li.className = 'trip-planner-item';
-          if (d.iconId != null) {
-            const img = document.createElement('img');
-            img.src = CDN_ICONS_BASE + '/icon_' + d.iconId + '.png';
-            img.alt = '';
-            img.className = 'item-icon';
-            li.appendChild(img);
+          for (const v of vaultsHere) {
+            pickEntries.push({ d, vaultId: v.vault, stack: v.stack, later });
           }
-          const span = document.createElement('span');
-          const nameBtn = document.createElement('button');
-          nameBtn.type = 'button';
-          nameBtn.className = 'item-lookup-link';
-          nameBtn.textContent = d.name;
-          nameBtn.addEventListener('click', () => openItemUsedForModal(d.name, d.typeId));
-          span.appendChild(nameBtn);
-          span.appendChild(document.createTextNode(' from ' + parts.join(', ') + ' → drop at ' + later.join(', ') + '.'));
-          li.appendChild(span);
-          ul.appendChild(li);
         }
-        legDiv.appendChild(ul);
+        const byVault = {};
+        for (const e of pickEntries) {
+          const name = vaultFriendlyName(e.vaultId);
+          if (!byVault[name]) byVault[name] = [];
+          byVault[name].push(e);
+        }
+        const vaultNames = Object.keys(byVault).sort((a, b) => a.localeCompare(b));
+        for (const vaultName of vaultNames) {
+          const groupDiv = document.createElement('div');
+          groupDiv.className = 'trip-planner-vault-group';
+          const heading = document.createElement('p');
+          heading.className = 'trip-planner-vault-heading';
+          const url = npcWikiUrl(vaultName);
+          if (url && vaultName) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.className = 'npc-wiki-link';
+            a.textContent = vaultName;
+            heading.appendChild(document.createTextNode('From '));
+            heading.appendChild(a);
+            heading.appendChild(document.createTextNode(':'));
+          } else {
+            heading.textContent = 'From ' + vaultName + ':';
+          }
+          groupDiv.appendChild(heading);
+          const ul = document.createElement('ul');
+          ul.className = 'trip-planner-list';
+          for (const e of byVault[vaultName]) {
+            const li = document.createElement('li');
+            li.className = 'trip-planner-item';
+            if (e.d.iconId != null) {
+              const img = document.createElement('img');
+              img.src = CDN_ICONS_BASE + '/icon_' + e.d.iconId + '.png';
+              img.alt = '';
+              img.className = 'item-icon';
+              li.appendChild(img);
+            }
+            const span = document.createElement('span');
+            const nameBtn = document.createElement('button');
+            nameBtn.type = 'button';
+            nameBtn.className = 'item-lookup-link';
+            nameBtn.textContent = e.d.name;
+            nameBtn.addEventListener('click', () => openItemUsedForModal(e.d.name, e.d.typeId));
+            span.appendChild(nameBtn);
+            span.appendChild(document.createTextNode(' — ' + e.stack + ' → drop at ' + e.later.join(', ') + '.'));
+            li.appendChild(span);
+            ul.appendChild(li);
+          }
+          groupDiv.appendChild(ul);
+          legDiv.appendChild(groupDiv);
+        }
       }
       if (hasDrop) {
         const dropP = document.createElement('p');
         dropP.className = 'trip-planner-subhead';
         dropP.textContent = isLast ? 'Drop here (final stop—consolidate):' : 'Drop here (consolidate):';
         legDiv.appendChild(dropP);
-        const ul = document.createElement('ul');
-        ul.className = 'trip-planner-list';
+        const dropEntries = [];
         for (const d of dropItems) {
           const vaultsHere = d.vaults.filter((v) => (vaultCityHeading(v.vault) || 'Other') === mapName);
           const slotsAtStop = Math.max(0, vaultsHere.length - 1);
-          const li = document.createElement('li');
-          li.className = 'trip-planner-item';
-          if (d.iconId != null) {
-            const img = document.createElement('img');
-            img.src = CDN_ICONS_BASE + '/icon_' + d.iconId + '.png';
-            img.alt = '';
-            img.className = 'item-icon';
-            li.appendChild(img);
+          for (const v of vaultsHere) {
+            dropEntries.push({ d, vaultId: v.vault, slotsAtStop });
           }
-          const span = document.createElement('span');
-          const nameBtn = document.createElement('button');
-          nameBtn.type = 'button';
-          nameBtn.className = 'item-lookup-link';
-          nameBtn.textContent = d.name;
-          nameBtn.addEventListener('click', () => openItemUsedForModal(d.name, d.typeId));
-          span.appendChild(nameBtn);
-          span.appendChild(document.createTextNode(' — put in one vault here' + (slotsAtStop > 0 ? ' to save ' + slotsAtStop + ' slot(s).' : '.')));
-          li.appendChild(span);
-          ul.appendChild(li);
         }
-        legDiv.appendChild(ul);
+        const byVaultDrop = {};
+        for (const e of dropEntries) {
+          const name = vaultFriendlyName(e.vaultId);
+          if (!byVaultDrop[name]) byVaultDrop[name] = [];
+          byVaultDrop[name].push(e);
+        }
+        const vaultNamesDrop = Object.keys(byVaultDrop).sort((a, b) => a.localeCompare(b));
+        for (const vaultName of vaultNamesDrop) {
+          const groupDiv = document.createElement('div');
+          groupDiv.className = 'trip-planner-vault-group';
+          const heading = document.createElement('p');
+          heading.className = 'trip-planner-vault-heading';
+          const url = npcWikiUrl(vaultName);
+          if (url && vaultName) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.className = 'npc-wiki-link';
+            a.textContent = vaultName;
+            heading.appendChild(document.createTextNode('From '));
+            heading.appendChild(a);
+            heading.appendChild(document.createTextNode(':'));
+          } else {
+            heading.textContent = 'From ' + vaultName + ':';
+          }
+          groupDiv.appendChild(heading);
+          const ul = document.createElement('ul');
+          ul.className = 'trip-planner-list';
+          for (const e of byVaultDrop[vaultName]) {
+            const li = document.createElement('li');
+            li.className = 'trip-planner-item';
+            if (e.d.iconId != null) {
+              const img = document.createElement('img');
+              img.src = CDN_ICONS_BASE + '/icon_' + e.d.iconId + '.png';
+              img.alt = '';
+              img.className = 'item-icon';
+              li.appendChild(img);
+            }
+            const span = document.createElement('span');
+            const nameBtn = document.createElement('button');
+            nameBtn.type = 'button';
+            nameBtn.className = 'item-lookup-link';
+            nameBtn.textContent = e.d.name;
+            nameBtn.addEventListener('click', () => openItemUsedForModal(e.d.name, e.d.typeId));
+            span.appendChild(nameBtn);
+            span.appendChild(document.createTextNode(' — put in one vault here' + (e.slotsAtStop > 0 ? ' to save ' + e.slotsAtStop + ' slot(s).' : '.')));
+            li.appendChild(span);
+            ul.appendChild(li);
+          }
+          groupDiv.appendChild(ul);
+          legDiv.appendChild(groupDiv);
+        }
       }
       tripPlannerOutput.appendChild(legDiv);
     }
@@ -2716,15 +2836,26 @@
       });
     }
     if (tripPlannerStops) {
-      tripPlannerStops.querySelectorAll('select').forEach((sel) => {
+      tripPlannerStops.querySelectorAll('.trip-planner-stop select').forEach((sel) => {
         sel.addEventListener('change', renderTripPlan);
+      });
+      tripPlannerStops.addEventListener('click', (e) => {
+        const btn = e.target.closest('.trip-planner-remove-stop');
+        if (!btn || !tripPlannerStops) return;
+        const stopDiv = btn.closest('.trip-planner-stop');
+        if (!stopDiv) return;
+        stopDiv.remove();
+        renumberTripStops();
+        renderTripPlan();
       });
     }
     if (tripPlannerAddStop) {
       tripPlannerAddStop.addEventListener('click', () => {
         if (!tripPlannerStops) return;
-        const selects = tripPlannerStops.querySelectorAll('select');
-        const n = selects.length + 1;
+        const stopDivs = tripPlannerStops.querySelectorAll('.trip-planner-stop');
+        const n = stopDivs.length + 1;
+        const div = document.createElement('div');
+        div.className = 'trip-planner-stop';
         const label = document.createElement('label');
         const span = document.createElement('span');
         span.textContent = 'Stop ' + n;
@@ -2733,17 +2864,25 @@
         sel.setAttribute('aria-label', 'Stop ' + n + ' map');
         sel.innerHTML = '<option value="">— Select map —</option>';
         label.appendChild(sel);
-        tripPlannerStops.appendChild(label);
+        div.appendChild(label);
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'trip-planner-remove-stop';
+        removeBtn.setAttribute('aria-label', 'Remove stop ' + n);
+        removeBtn.setAttribute('title', 'Remove this stop');
+        removeBtn.textContent = '×';
+        div.insertBefore(removeBtn, label);
+        tripPlannerStops.appendChild(div);
         populateTripStopOptions();
         sel.addEventListener('change', renderTripPlan);
       });
     }
     if (tripPlannerClear && tripPlannerStops) {
       tripPlannerClear.addEventListener('click', () => {
-        const labels = tripPlannerStops.querySelectorAll('label');
-        for (let i = 2; i < labels.length; i++) labels[i].remove();
-        const selects = tripPlannerStops.querySelectorAll('select');
-        selects.forEach((sel) => { sel.value = ''; });
+        const stopDivs = tripPlannerStops.querySelectorAll('.trip-planner-stop');
+        for (let i = 2; i < stopDivs.length; i++) stopDivs[i].remove();
+        tripPlannerStops.querySelectorAll('.trip-planner-stop select').forEach((sel) => { sel.value = ''; });
+        renumberTripStops();
         renderTripPlan();
       });
     }

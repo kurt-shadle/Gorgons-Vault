@@ -6,6 +6,12 @@
 
 ---
 
+## Features to prioritize
+
+- **Trip planner — group by city, then by NPC:** Break trip results up **by city**, and within each city by **which NPC has what**. Right now the flat list order makes you bounce between the same storage multiple times; grouping by city → NPC would let you visit each storage once per city and follow a logical route instead of jumping around.
+
+---
+
 ## Favor Item Finder
 
 Load items export and optionally character sheet, pick map and NPC. Results update automatically when an NPC is selected. Shows current favor with the NPC (if character sheet loaded) and giftable items grouped by city and storage vault. NPC names and vault names link to the Project Gorgon Wiki. Already implemented.
@@ -19,6 +25,8 @@ Find duplicate item types across storage vaults so you can consolidate stacks in
 **Implementation:** Group user items by `TypeID`. For each TypeID that appears in more than one `StorageVault`, list vaults and stack sizes and show "slots you could save" (e.g. N stacks → 1 stack). Stack limits from CDN `MaxStackSize` when available; else a sensible default. Sort by slots saveable (desc) or item name. Total slots saveable is shown at the top. Vault names link to the wiki.
 
 **Trip plan (implemented):** Separate tab. Pick Map A, then Map B (or "add map" for 3, 4, … stops). Per stop: what to pick up (to drop at later stops) and what to drop here to consolidate. Clear route and equal-height card layout. General tip in UI: consolidate by destination—when you're at a map, move all listed stacks for that item into one vault there so you only visit each map once.
+
+**Prioritized improvement:** Group results **by city**, then within each city **by which NPC has what**, so the list order matches a logical route. Currently a flat list forces repeated visits to the same storage; grouping by city → NPC would reduce back-and-forth.
 
 ---
 
@@ -155,6 +163,7 @@ Use case: "Here are my quests; here's what I already have in my vaults that sati
 
 ## Planned / backlog
 
+- **Trip planner: group by city, then by NPC** — Break results by city and within each city by which NPC has what, so the list order supports one visit per storage instead of bouncing around (see Features to prioritize).
 - **itemuses.json** in What's this for? (see above).
 - **sources_abilities.json / sources_recipes.json** for "where to get" in Mod Finder and What's this for? (see Mod Finder planned).
 - **Mod rarity indicator** in Mod Finder (see above).
